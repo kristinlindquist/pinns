@@ -21,7 +21,12 @@ from xitorch.integrate import solve_ivp
 
 
 def get_trajectory(
-    t_span=[0, 3], timescale=14, radius=None, y0=None, noise_std=0.1, **kwargs
+    t_span: tuple[int, int] = [0, 3],
+    timescale=14,
+    radius=None,
+    y0=None,
+    noise_std=0.1,
+    **kwargs
 ):
     t_eval = torch.linspace(
         t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
@@ -43,10 +48,11 @@ def get_trajectory(
     # add noise
     q += torch.randn(*q.shape) * noise_std
     p += torch.randn(*p.shape) * noise_std
-    return q.squeeze(), p.squeeze(), dqdt, dpdt, t_eval
+
+    return q, p, dqdt, dpdt, t_eval
 
 
-def get_dataset(samples=50, test_split=0.5, **kwargs):
+def get_dataset(samples: int = 50, test_split: float = 0.5, **kwargs):
     data = {"meta": locals()}
     torch.seed()
     xs, dxs = [], []
@@ -55,10 +61,7 @@ def get_dataset(samples=50, test_split=0.5, **kwargs):
         xs.append(torch.stack([x, y]).T)
         dxs.append(torch.stack([dx, dy]).T)
 
-    # torch.Size([50, 2]
     data["x"] = torch.cat(xs)
-
-    # torch.Size([50, 21, 2]
     data["dx"] = torch.cat(dxs).squeeze()
 
     # make a train/test split
@@ -66,11 +69,17 @@ def get_dataset(samples=50, test_split=0.5, **kwargs):
     split_data = {}
     for k in ["x", "dx"]:
         split_data[k], split_data["test_" + k] = data[k][:split_ix], data[k][split_ix:]
-    data = split_data
-    return data
+
+    return split_data
 
 
-def get_field(xmin=-1.2, xmax=1.2, ymin=-1.2, ymax=1.2, gridsize=20):
+def get_field(
+    xmin: float = -1.2,
+    xmax: float = 1.2,
+    ymin: float = -1.2,
+    ymax: float = 1.2,
+    gridsize: int = 20,
+):
     field = {"meta": locals()}
 
     # meshgrid to get vector field
@@ -78,14 +87,14 @@ def get_field(xmin=-1.2, xmax=1.2, ymin=-1.2, ymax=1.2, gridsize=20):
         torch.linspace(xmin, xmax, gridsize),
         torch.linspace(ymin, ymax, gridsize),
     )
-    ys = torch.stack([b.flatten(), a.flatten()])
+    ys = torch.stack([b.flatten(), a.flatten()]).T
 
     # get vector directions
-    dydt = [dynamics_fn(None, y) for y in ys.T]
-    dydt = torch.stack(dydt).T
+    dydt = [dynamics_fn(None, y) for y in ys]
 
-    field["x"] = ys.T
-    field["dx"] = dydt.T
+    field["x"] = ys
+    field["dx"] = torch.stack(dydt)
+
     return field
 
 
@@ -98,10 +107,13 @@ def get_vector_field(model, **kwargs):
     return mesh_dx.data
 
 
-def integrate_model(model, t_span, y0, **kwargs):
+def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=14, **kwargs):
     def fun(t, x):
         _x = x.clone().detach().requires_grad_()
         dx = model.time_derivative(_x).data.reshape(-1)
         return dx
 
-    return odeint(fun, t=t_span, y0=y0, **kwargs)
+    t_eval = torch.linspace(
+        t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
+    )
+    return odeint(fun, t=t_eval, y0=y0, **kwargs)
