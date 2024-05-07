@@ -17,6 +17,9 @@ def dynamics_fn(t, coords):
     return S
 
 
+from xitorch.integrate import solve_ivp
+
+
 def get_trajectory(
     t_span=[0, 3], timescale=14, radius=None, y0=None, noise_std=0.1, **kwargs
 ):
@@ -31,15 +34,16 @@ def get_trajectory(
         radius = torch.rand(1) + 1.3  # sample a range of radii
     y0 = y0 / torch.sqrt((y0**2).sum()) * radius  ## set the appropriate radius
 
-    ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)
-    q, p = ivp[0], ivp[1]
-    dydt = [dynamics_fn(None, y) for y in ivp.T]
+    ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)  # t_eval
+
+    q, p = ivp[:, 0], ivp[:, 1]
+    dydt = [dynamics_fn(None, y) for y in ivp]
     dqdt, dpdt = torch.tensor_split(torch.stack(dydt).T, 2)
 
     # add noise
     q += torch.randn(*q.shape) * noise_std
     p += torch.randn(*p.shape) * noise_std
-    return q, p, dqdt, dpdt, t_eval
+    return q.squeeze(), p.squeeze(), dqdt, dpdt, t_eval
 
 
 def get_dataset(samples=50, test_split=0.5, **kwargs):
@@ -51,7 +55,10 @@ def get_dataset(samples=50, test_split=0.5, **kwargs):
         xs.append(torch.stack([x, y]).T)
         dxs.append(torch.stack([dx, dy]).T)
 
+    # torch.Size([50, 2]
     data["x"] = torch.cat(xs)
+
+    # torch.Size([50, 21, 2]
     data["dx"] = torch.cat(dxs).squeeze()
 
     # make a train/test split

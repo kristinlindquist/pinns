@@ -45,15 +45,7 @@ class HNN(torch.nn.Module):
         self.field_type = field_type
 
     def forward(self, x):
-        if x.dim() == 1:
-            x = x.unsqueeze(0)
-
         y = self.differentiable_model(x)
-
-        assert (
-            y.dim() == 2 and y.shape[1] == 2
-        ), "Output tensor should have shape [batch_size, 2]"
-        print("Y", y.shape)
         return torch.tensor_split(y, 2)
 
     def time_derivative(self, x, t=None, separate_fields=False):
