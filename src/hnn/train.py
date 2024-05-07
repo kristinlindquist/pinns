@@ -9,23 +9,19 @@ OUTPUT_DIM = 2
 
 
 def train(args):
-    nn_model = MLP(args.input_dim, args.hidden_dim, OUTPUT_DIM)
+    diff_model = MLP(args.input_dim, args.hidden_dim, OUTPUT_DIM)
     model = HNN(
-        args.input_dim, differentiable_model=nn_model, field_type=args.field_type
+        args.input_dim, differentiable_model=diff_model, field_type=args.field_type
     )
     optim = torch.optim.Adam(model.parameters(), args.learn_rate, weight_decay=1e-4)
 
     # arrange data
     data = get_dataset()
 
-    x = torch.tensor(data["x"], requires_grad=True, dtype=torch.float32)
-    test_x = torch.tensor(data["test_x"], requires_grad=True, dtype=torch.float32)
-    dxdt = torch.tensor(data["dx"])
-    test_dxdt = torch.tensor(data["test_dx"])
-
-    print(
-        "X has grad?", x.grad is not None, "Test X has grad?", test_x.grad is not None
-    )
+    x = data["x"].clone().detach().requires_grad_()
+    test_x = data["test_x"].clone().detach().requires_grad_()
+    dxdt = data["dx"].clone().detach()
+    test_dxdt = data["test_dx"].clone().detach()
 
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
@@ -33,6 +29,7 @@ def train(args):
 
         # train step
         dxdt_hat = model.time_derivative(x)
+        print("dxdt_hat", dxdt_hat.shape, dxdt.shape)
         loss = L2_loss(dxdt, dxdt_hat)
         loss.backward()
         optim.step()

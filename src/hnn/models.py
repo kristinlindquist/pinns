@@ -1,4 +1,5 @@
 import torch
+import torch.autograd.functional as AF
 
 
 class MLP(torch.nn.Module):
@@ -13,10 +14,16 @@ class MLP(torch.nn.Module):
         self.linear3 = torch.nn.Linear(hidden_dim, output_dim, bias=None)
         self.nonlinearity = torch.nn.Tanh()
 
-    def forward(self, x, separate_fields=False):
-        h = self.nonlinearity(self.linear1(x))
-        h = self.nonlinearity(self.linear2(h))
-        return self.linear3(h)
+        self.module = torch.nn.Sequential(
+            self.linear1,
+            self.nonlinearity,
+            self.linear2,
+            self.nonlinearity,
+            self.linear3,
+        )
+
+    def forward(self, x):
+        return self.module(x)
 
 
 class HNN(torch.nn.Module):
@@ -26,7 +33,7 @@ class HNN(torch.nn.Module):
 
     def __init__(
         self,
-        input_dim,
+        input_dim: int,
         differentiable_model,
         field_type="solenoidal",
         assume_canonical_coords=True,
@@ -38,21 +45,21 @@ class HNN(torch.nn.Module):
         self.field_type = field_type
 
     def forward(self, x):
-        y = self.differentiable_model(x)
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
 
-        if y.dim() == 1:
-            y = y.unsqueeze(0)
+        y = self.differentiable_model(x)
 
         assert (
             y.dim() == 2 and y.shape[1] == 2
         ), "Output tensor should have shape [batch_size, 2]"
-        return y.split(1, 1)
+        print("Y", y.shape)
+        return torch.tensor_split(y, 2)
 
     def time_derivative(self, x, t=None, separate_fields=False):
         """
         NEURAL HAMILTONIAN-STLE VECTOR FIELD
         """
-        print("X has grad?", x.grad is not None)
         F1, F2 = self.forward(x)  # traditional forward pass
 
         # start out with both components set to 0
