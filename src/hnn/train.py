@@ -17,10 +17,15 @@ def train(args):
 
     # arrange data
     data = get_dataset()
+
     x = torch.tensor(data["x"], requires_grad=True, dtype=torch.float32)
     test_x = torch.tensor(data["test_x"], requires_grad=True, dtype=torch.float32)
-    dxdt = torch.Tensor(data["dx"])
-    test_dxdt = torch.Tensor(data["test_dx"])
+    dxdt = torch.tensor(data["dx"])
+    test_dxdt = torch.tensor(data["test_dx"])
+
+    print(
+        "X has grad?", x.grad is not None, "Test X has grad?", test_x.grad is not None
+    )
 
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
