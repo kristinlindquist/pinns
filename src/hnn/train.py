@@ -2,11 +2,10 @@ import torch
 import math, os, sys
 
 from hnn.models import MLP, HNN
-from hnn.simulation import get_dataset
 from hnn.utils import L2_loss
 
 
-def train(args):
+def train(args, data):
     diff_model = MLP(args.input_dim, args.hidden_dim, args.input_dim)
     model = HNN(
         args.input_dim, differentiable_model=diff_model, field_type=args.field_type
@@ -14,9 +13,6 @@ def train(args):
     optim = torch.optim.Adam(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )
-
-    # arrange data
-    data = get_dataset()
 
     x = data["x"].clone().detach().requires_grad_()
     test_x = data["test_x"].clone().detach().requires_grad_()
