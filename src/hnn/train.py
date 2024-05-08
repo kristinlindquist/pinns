@@ -26,7 +26,6 @@ def train(args):
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
     for step in range(args.total_steps + 1):
-
         model.train()
         # train step
         optim.zero_grad()

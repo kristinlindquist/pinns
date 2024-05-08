@@ -12,7 +12,7 @@ def hamiltonian_fn(coords: torch.Tensor):
 
 def dynamics_fn(t: torch.Tensor, coords: torch.Tensor):
     # 1 x 2
-    dcoords = AF.jacobian(hamiltonian_fn, torch.tensor(coords))
+    dcoords = AF.jacobian(hamiltonian_fn, coords)
 
     # 1
     dqdt, dpdt = dcoords.T
@@ -20,11 +20,6 @@ def dynamics_fn(t: torch.Tensor, coords: torch.Tensor):
     # 1 x 2 (???)
     S = torch.cat([dpdt, -dqdt], axis=-1)
     return S
-
-
-import scipy.integrate
-
-solve_ivp = scipy.integrate.solve_ivp
 
 
 def get_trajectory(
@@ -48,20 +43,6 @@ def get_trajectory(
     )
 
     ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)
-
-    # spring_ivp = solve_ivp(
-    #     fun=dynamics_fn,
-    #     t_span=t_span,
-    #     y0=y0.numpy(),
-    #     t_eval=t_eval.numpy(),
-    #     rtol=1e-10,
-    #     **kwargs
-    # )
-    # print("Spring IVP", spring_ivp["y"].shape, "ODEINT IVP", ivp.shape)
-    # print(
-    #     "SPR",
-    #     [v.shape for v in torch.tensor_split(torch.tensor(spring_ivp["y"]).T, 10)],
-    # )
 
     q, p = ivp[:, 0].unsqueeze(0), ivp[:, 1].unsqueeze(0)
     dydt = torch.stack([dynamics_fn(None, y) for y in ivp])
@@ -120,7 +101,7 @@ def get_field(
     # get vector directions
     dydt = [dynamics_fn(None, y) for y in ys]
 
-    field["x"] = ys
+    field["x"] = ys.unsqueeze(0)
     field["dx"] = torch.stack(dydt)
 
     return field
@@ -138,7 +119,7 @@ def get_vector_field(model, **kwargs):
 def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=30, **kwargs):
     def fun(t, x):
         if x.ndim == 1:
-            x = x.unsqueeze(0)
+            x = x.unsqueeze(0).unsqueeze(0)
         _x = x.clone().detach().requires_grad_()
         dx = model.time_derivative(_x).data
         return dx
