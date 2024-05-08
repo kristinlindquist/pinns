@@ -5,15 +5,15 @@ from hnn.models import MLP, HNN
 from hnn.simulation import get_dataset
 from hnn.utils import L2_loss
 
-OUTPUT_DIM = 2
-
 
 def train(args):
-    diff_model = MLP(args.input_dim, args.hidden_dim, OUTPUT_DIM)
+    diff_model = MLP(args.input_dim, args.hidden_dim, args.input_dim)
     model = HNN(
         args.input_dim, differentiable_model=diff_model, field_type=args.field_type
     )
-    optim = torch.optim.Adam(model.parameters(), args.learn_rate, weight_decay=1e-4)
+    optim = torch.optim.Adam(
+        model.parameters(), args.learn_rate, weight_decay=args.weight_decay
+    )
 
     # arrange data
     data = get_dataset()
@@ -26,20 +26,21 @@ def train(args):
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
     for step in range(args.total_steps + 1):
+
+        # train
         model.train()
-        # train step
         optim.zero_grad()
         dxdt_hat = model.time_derivative(x)
         loss = L2_loss(dxdt, dxdt_hat)
         loss.backward()
         optim.step()
 
+        # test
         model.eval()
-        # run test data
         test_dxdt_hat = model.time_derivative(test_x)
         test_loss = L2_loss(test_dxdt, test_dxdt_hat)
 
-        # logging
+        # log
         stats["train_loss"].append(loss.item())
         stats["test_loss"].append(test_loss.item())
         print(

@@ -5,60 +5,70 @@ from functorch import jacrev
 
 
 def hamiltonian_fn(coords: torch.Tensor):
+    """
+    Pendulum Hamiltonian
+    """
     q, p = torch.tensor_split(coords, 2)
-    H = 3 * (1 - torch.cos(q)) + p**2  # pendulum hamiltonian
+    H = 3 * (1 - torch.cos(q)) + p**2
     return H
 
 
 def dynamics_fn(t: torch.Tensor, coords: torch.Tensor):
+    """
+    Pendulum dynamics
+    """
     # 1 x 2
     dcoords = AF.jacobian(hamiltonian_fn, coords)
 
     # 1
     dqdt, dpdt = dcoords.T
 
-    # 1 x 2 (???)
+    # 1 x 2
     S = torch.cat([dpdt, -dqdt], axis=-1)
     return S
+
+
+def get_default_y0(radius: float = 1.3):
+    y0 = torch.rand(2) * 2.0 - 1
+    y0 = y0 / torch.sqrt((y0**2).sum()) * radius
+    return y0
+
+
+def get_timepoints(t_span: tuple[int, int], timescale: int = 30):
+    return torch.linspace(
+        t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
+    )
 
 
 def get_trajectory(
     t_span: tuple[int, int] = [0, 3],
     timescale=30,
-    radius=None,
-    y0=None,
+    radius=torch.rand(1) + 1.3,
+    y0=get_default_y0(),
     noise_std=0.1,
     **kwargs
 ):
-
-    # get initial state
-    if y0 is None:
-        y0 = torch.rand(2) * 2.0 - 1
-    if radius is None:
-        radius = torch.rand(1) + 1.3  # sample a range of radii
-    y0 = y0 / torch.sqrt((y0**2).sum()) * radius  ## set the appropriate radius
-
-    t_eval = torch.linspace(
-        t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
-    )
-
-    ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)
+    t = get_timepoints(t_span, timescale)
+    ivp = odeint(dynamics_fn, t=t, y0=y0, rtol=1e-10, **kwargs)
 
     q, p = ivp[:, 0].unsqueeze(0), ivp[:, 1].unsqueeze(0)
     dydt = torch.stack([dynamics_fn(None, y) for y in ivp])
 
-    # (t_eval.length, 2) -> tup of (1, t_eval.length)
+    # (t.length, 2) -> tup of (1, t.length)
     dqdt, dpdt = torch.tensor_split(dydt.transpose(0, 1), 2)
 
     # add noise
     q += torch.randn(*q.shape) * noise_std
     p += torch.randn(*p.shape) * noise_std
 
-    # all shapes are (1, t_eval.length)
-    return q, p, dqdt, dpdt, t_eval
+    # (1, t.length)
+    return q, p, dqdt, dpdt, t
 
 
 def get_dataset(samples: int = 50, test_split: float = 0.5, **kwargs):
+    """
+    Generate a dataset of pendulum trajectories
+    """
     data = {"meta": locals()}
     torch.seed()
     xs, dxs = [], []
@@ -70,8 +80,6 @@ def get_dataset(samples: int = 50, test_split: float = 0.5, **kwargs):
     # (num_samples, timescale, 2)
     data["x"] = torch.cat(xs)
     data["dx"] = torch.cat(dxs)
-
-    print("X shape", data["x"].shape, "DX shape", data["dx"].shape)
 
     # make a train/test split
     split_ix = int(len(data["x"]) * test_split)
@@ -124,7 +132,5 @@ def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=30, **kwa
         dx = model.time_derivative(_x).data
         return dx
 
-    t_eval = torch.linspace(
-        t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
-    )
-    return odeint(fun, t=t_eval, y0=y0, **kwargs)
+    t = get_timepoints(t_span, timescale)
+    return odeint(fun, t=t, y0=y0, **kwargs)
