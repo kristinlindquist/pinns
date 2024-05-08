@@ -4,33 +4,32 @@ import torch.autograd.functional as AF
 from functorch import jacrev
 
 
-def hamiltonian_fn(coords):
+def hamiltonian_fn(coords: torch.Tensor):
     q, p = torch.tensor_split(coords, 2)
     H = 3 * (1 - torch.cos(q)) + p**2  # pendulum hamiltonian
     return H
 
 
-def dynamics_fn(t, coords):
-    dcoords = AF.jacobian(hamiltonian_fn, coords)
+def dynamics_fn(t: torch.Tensor, coords: torch.Tensor):
+    dcoords = AF.jacobian(hamiltonian_fn, torch.tensor(coords))
     dqdt, dpdt = torch.tensor_split(dcoords[0], 2)
     S = torch.cat([dpdt, -dqdt], axis=-1)
     return S
 
 
-from xitorch.integrate import solve_ivp
+import scipy.integrate
+
+solve_ivp = scipy.integrate.solve_ivp
 
 
 def get_trajectory(
     t_span: tuple[int, int] = [0, 3],
-    timescale=14,
+    timescale=30,
     radius=None,
     y0=None,
     noise_std=0.1,
     **kwargs
 ):
-    t_eval = torch.linspace(
-        t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
-    )
 
     # get initial state
     if y0 is None:
@@ -39,11 +38,29 @@ def get_trajectory(
         radius = torch.rand(1) + 1.3  # sample a range of radii
     y0 = y0 / torch.sqrt((y0**2).sum()) * radius  ## set the appropriate radius
 
+    t_eval = torch.linspace(
+        t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
+    )
+
     ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)  # t_eval
 
+    # spring_ivp = solve_ivp(
+    #     fun=dynamics_fn,
+    #     t_span=t_span,
+    #     y0=y0.numpy(),
+    #     t_eval=t_eval.numpy(),
+    #     rtol=1e-10,
+    #     **kwargs
+    # )
+    # print("Spring IVP", spring_ivp["y"].shape, "ODEINT IVP", ivp.shape)
+    # print(
+    #     "SPR",
+    #     [v.shape for v in torch.tensor_split(torch.tensor(spring_ivp["y"]).T, 10)],
+    # )
+
     q, p = ivp[:, 0], ivp[:, 1]
-    dydt = [dynamics_fn(None, y) for y in ivp]
-    dqdt, dpdt = torch.tensor_split(torch.stack(dydt).T, 2)
+    dydt = torch.stack([dynamics_fn(None, y) for y in ivp])
+    dqdt, dpdt = torch.tensor_split(dydt.transpose(0, 1), 2)
 
     # add noise
     q += torch.randn(*q.shape) * noise_std
@@ -58,8 +75,8 @@ def get_dataset(samples: int = 50, test_split: float = 0.5, **kwargs):
     xs, dxs = [], []
     for s in range(samples):
         x, y, dx, dy, t = get_trajectory(**kwargs)
-        xs.append(torch.stack([x, y]).T)
-        dxs.append(torch.stack([dx, dy]).T)
+        xs.append(torch.stack([x, y]).transpose(0, 1))
+        dxs.append(torch.stack([dx, dy]).transpose(0, 1))
 
     data["x"] = torch.cat(xs)
     data["dx"] = torch.cat(dxs).squeeze()
@@ -87,7 +104,7 @@ def get_field(
         torch.linspace(xmin, xmax, gridsize),
         torch.linspace(ymin, ymax, gridsize),
     )
-    ys = torch.stack([b.flatten(), a.flatten()]).T
+    ys = torch.stack([b.flatten(), a.flatten()]).transpose(0, 1)
 
     # get vector directions
     dydt = [dynamics_fn(None, y) for y in ys]
@@ -107,10 +124,12 @@ def get_vector_field(model, **kwargs):
     return mesh_dx.data
 
 
-def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=14, **kwargs):
+def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=30, **kwargs):
     def fun(t, x):
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
         _x = x.clone().detach().requires_grad_()
-        dx = model.time_derivative(_x).data.reshape(-1)
+        dx = model.time_derivative(_x).data  # .reshape(-1)
         return dx
 
     t_eval = torch.linspace(
