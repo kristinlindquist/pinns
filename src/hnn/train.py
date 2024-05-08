@@ -27,15 +27,15 @@ def train(args):
     stats = {"train_loss": [], "test_loss": []}
     for step in range(args.total_steps + 1):
 
+        model.train()
         # train step
+        optim.zero_grad()
         dxdt_hat = model.time_derivative(x)
-        print("LOSS", dxdt.shape, dxdt_hat.shape)
         loss = L2_loss(dxdt, dxdt_hat)
-        # print("LOSS", loss, dxdt.shape, dxdt_hat.shape)
         loss.backward()
         optim.step()
-        optim.zero_grad()
 
+        model.eval()
         # run test data
         test_dxdt_hat = model.time_derivative(test_x)
         test_loss = L2_loss(test_dxdt, test_dxdt_hat)

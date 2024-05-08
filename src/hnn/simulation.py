@@ -11,8 +11,13 @@ def hamiltonian_fn(coords: torch.Tensor):
 
 
 def dynamics_fn(t: torch.Tensor, coords: torch.Tensor):
+    # 1 x 2
     dcoords = AF.jacobian(hamiltonian_fn, torch.tensor(coords))
-    dqdt, dpdt = torch.tensor_split(dcoords[0], 2)
+
+    # 1
+    dqdt, dpdt = dcoords.T
+
+    # 1 x 2 (???)
     S = torch.cat([dpdt, -dqdt], axis=-1)
     return S
 
@@ -42,7 +47,7 @@ def get_trajectory(
         t_span[0], t_span[1], int(timescale * (t_span[1] - t_span[0]))
     )
 
-    ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)  # t_eval
+    ivp = odeint(dynamics_fn, t=t_eval, y0=y0, rtol=1e-10, **kwargs)
 
     # spring_ivp = solve_ivp(
     #     fun=dynamics_fn,
@@ -58,14 +63,17 @@ def get_trajectory(
     #     [v.shape for v in torch.tensor_split(torch.tensor(spring_ivp["y"]).T, 10)],
     # )
 
-    q, p = ivp[:, 0], ivp[:, 1]
+    q, p = ivp[:, 0].unsqueeze(0), ivp[:, 1].unsqueeze(0)
     dydt = torch.stack([dynamics_fn(None, y) for y in ivp])
+
+    # (t_eval.length, 2) -> tup of (1, t_eval.length)
     dqdt, dpdt = torch.tensor_split(dydt.transpose(0, 1), 2)
 
     # add noise
     q += torch.randn(*q.shape) * noise_std
     p += torch.randn(*p.shape) * noise_std
 
+    # all shapes are (1, t_eval.length)
     return q, p, dqdt, dpdt, t_eval
 
 
@@ -75,11 +83,14 @@ def get_dataset(samples: int = 50, test_split: float = 0.5, **kwargs):
     xs, dxs = [], []
     for s in range(samples):
         x, y, dx, dy, t = get_trajectory(**kwargs)
-        xs.append(torch.stack([x, y]).transpose(0, 1))
-        dxs.append(torch.stack([dx, dy]).transpose(0, 1))
+        xs.append(torch.stack([x, y]).permute(1, 2, 0))
+        dxs.append(torch.stack([dx, dy]).permute(1, 2, 0))
 
+    # (num_samples, timescale, 2)
     data["x"] = torch.cat(xs)
-    data["dx"] = torch.cat(dxs).squeeze()
+    data["dx"] = torch.cat(dxs)
+
+    print("X shape", data["x"].shape, "DX shape", data["dx"].shape)
 
     # make a train/test split
     split_ix = int(len(data["x"]) * test_split)
@@ -129,7 +140,7 @@ def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=30, **kwa
         if x.ndim == 1:
             x = x.unsqueeze(0)
         _x = x.clone().detach().requires_grad_()
-        dx = model.time_derivative(_x).data  # .reshape(-1)
+        dx = model.time_derivative(_x).data
         return dx
 
     t_eval = torch.linspace(
