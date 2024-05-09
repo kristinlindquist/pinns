@@ -14,30 +14,33 @@ DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10), "y0": get_default_y0()}
 
 
 def lennard_jones_potential(
-    q: torch.Tensor, sigma: float = 1.0, epsilon: float = 1.0
+    q: torch.Tensor, σ: float = 1.0, ε: float = 1.0
 ) -> torch.Tensor:
     """
     Lennard-Jones potential function.
+    V(r) = 4 * ε * ((σ / r)^12 - (σ / r)^6
 
     Args:
         q (torch.Tensor): Tensor containing positions of particles.
-        sigma (float): Parameter for the Lennard-Jones potential.
-        epsilon (float): Parameter for the Lennard-Jones potential.
+        σ (float): "the distance at which the particle-particle potential energy V is zero"
+        ε (float): "depth of the potential well"
 
     Returns:
-        torch.Tensor: Total potential energy.
+        torch.Tensor: Total potential energy (v).
+
+    See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
     n_particles = q.shape[0] // 2
     q = q.view(n_particles, -1)
 
-    potential_energy = 0.0
+    v = 0.0
     for i in range(n_particles):
         for j in range(i + 1, n_particles):
             r = torch.norm(q[i] - q[j])
-            r6 = (sigma / r) ** 6
+            r6 = (σ / r) ** 6
             r12 = r6 * r6
-            potential_energy += 4 * epsilon * (r12 - r6)
-    return potential_energy
+            v += 4 * ε * (r12 - r6)
+    return v
 
 
 def mve_ensemble_fn(
@@ -54,7 +57,6 @@ def mve_ensemble_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    n_particles = masses.shape[0]
     q, p = torch.tensor_split(coords, 2)
 
     # Compute kinetic energy
@@ -68,8 +70,19 @@ def mve_ensemble_fn(
     return H
 
 
+def get_mve_ensemble_fn(masses: torch.Tensor, potential_fn):
+    def _mve_ensemble_fn(coords: torch.Tensor) -> torch.Tensor:
+        return mve_ensemble_fn(coords, masses, potential_fn)
+
+    return _mve_ensemble_fn
+
+
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
     def __init__(self):
+        masses = torch.tensor([1.0, 1.5, 2.0])
+        mve_ensemble_fn = get_mve_ensemble_fn(
+            masses, potential_fn=lennard_jones_potential
+        )
         super(MveEnsembleHamiltonianDynamics, self).__init__(mve_ensemble_fn)
 
     @overload
