@@ -61,6 +61,7 @@ class HamiltonianDynamics:
         self,
         args: FieldArgs = FieldArgs(),
     ) -> HamiltonianField:
+        # torch.Size([33, 10])
         xmin, xmax, ymin, ymax, gridsize = args.dict().values()
 
         # meshgrid to get vector field
@@ -76,7 +77,7 @@ class HamiltonianDynamics:
         # num_samples*t_span[1] x n_bodies
         dydt = torch.stack([self.dynamics_fn(None, y) for y in ys])
 
-        field = HamiltonianField(meta=locals(), x=ys.unsqueeze(0), dx=dydt)
+        field = HamiltonianField(meta=locals(), x=ys, dx=dydt)
         return field
 
     @multidispatch
@@ -93,10 +94,13 @@ class HamiltonianDynamics:
     def _(self, model: torch.nn.Module, field_args: FieldArgs) -> torch.Tensor:
         field = self.get_field(field_args)
 
+        if field.x.dim() == 3:
+            field.x = field.x.unsqueeze(0)
+
         mesh_x = field.x.requires_grad_()
         mesh_dx = model.time_derivative(mesh_x)
 
-        return mesh_dx.data
+        return mesh_dx.data.squeeze(0)
 
     @multidispatch
     def get_trajectory(self, args, ode_args):

@@ -47,7 +47,6 @@ class HNN(torch.nn.Module):
     def forward(self, x):
         y = self.differentiable_model(x)
         F1, F2 = torch.tensor_split(y, 2, dim=-1)
-        print("F1", F1.shape, "F2", F2.shape, "y", y.shape)
         return F1.squeeze(-1), F2.squeeze(-1)
 
     def time_derivative(self, x, t=None, separate_fields=False):

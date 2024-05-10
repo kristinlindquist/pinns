@@ -15,7 +15,7 @@ class HamiltonianField(BaseModel):
 class TrajectoryArgs(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     t_span: tuple[int, int]
-    timescale: int = 3  # 6  # 30
+    timescale: int = 10
     noise_std: float = 0.1
 
 
@@ -28,5 +28,5 @@ class FieldArgs(BaseModel):
 
 
 class DatasetArgs(BaseModel):
-    num_samples: int = 3  # 50
+    num_samples: int = 20
     test_split: float = 0.7

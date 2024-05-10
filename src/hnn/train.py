@@ -27,7 +27,6 @@ def train(args, data):
         model.train()
         optim.zero_grad()
         dxdt_hat = model.time_derivative(x)
-        print("dxdt_hat", dxdt_hat.shape, "dxdt", dxdt.shape, "x", x.shape)
         loss = L2_loss(dxdt, dxdt_hat)
         loss.backward()
         optim.step()
