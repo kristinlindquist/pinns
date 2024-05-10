@@ -6,11 +6,15 @@ from hnn.dynamics import HamiltonianDynamics
 from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
 
 
-def get_default_y0() -> torch.Tensor:
-    return torch.rand(2)
+def get_default_y0(n_bodies: int = 10) -> torch.Tensor:
+    q = torch.randn(n_bodies)
+    p = torch.randn(n_bodies)
+    coords = torch.stack([q, p]).T
+    return coords
 
 
-DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10), "y0": get_default_y0()}
+DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 11)}
+DEFAULT_ODE_ARGS = {"y0": get_default_y0()}
 
 
 def lennard_jones_potential(
@@ -21,7 +25,7 @@ def lennard_jones_potential(
     V(r) = 4 * ε * ((σ / r)^12 - (σ / r)^6
 
     Args:
-        q (torch.Tensor): Tensor containing positions of particles.
+        q (torch.Tensor): Tensor containing positions of particles. (n_particles, 2)
         σ (float): "the distance at which the particle-particle potential energy V is zero"
         ε (float): "depth of the potential well"
 
@@ -57,16 +61,19 @@ def mve_ensemble_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    q, p = torch.tensor_split(coords, 2)
+    q, p = coords.T
+
+    num_repeats = q.shape[0] // len(masses)
 
     # Compute kinetic energy
-    kinetic_energy = torch.sum(p**2 / (2 * masses.repeat(2)))
+    kinetic_energy = torch.sum(p**2 / (2 * masses.repeat(num_repeats)))
 
     # Compute potential energy
     potential_energy = potential_fn(q)
 
     # Hamiltonian (Total Energy)
     H = kinetic_energy + potential_energy
+
     return H
 
 
@@ -79,7 +86,7 @@ def get_mve_ensemble_fn(masses: torch.Tensor, potential_fn):
 
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
     def __init__(self):
-        masses = torch.tensor([1.0, 1.5, 2.0])
+        masses = torch.tensor([1.0, 1.5, 2.0, 1.0, 1.5, 2.0, 1.0, 1.5, 2.0, 1.25])
         mve_ensemble_fn = get_mve_ensemble_fn(
             masses, potential_fn=lennard_jones_potential
         )
@@ -88,11 +95,11 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
     @overload
     @HamiltonianDynamics.get_dataset.register
     def _(self, args: dict, trajectory_args: dict):
-        traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **args})
-        return self.get_dataset(DatasetArgs(**args), traj_args)
+        traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **trajectory_args})
+        return self.get_dataset(DatasetArgs(**args), traj_args, DEFAULT_ODE_ARGS)
 
     @overload
     @HamiltonianDynamics.get_trajectory.register
     def _(self, args: dict, ode_args: dict = {}) -> HamiltonianField:
         traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **args})
-        return self.get_trajectory(traj_args, ode_args)
+        return self.get_trajectory(traj_args, {**DEFAULT_ODE_ARGS, **ode_args})

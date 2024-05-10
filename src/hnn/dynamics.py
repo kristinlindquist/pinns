@@ -17,6 +17,9 @@ from hnn.types import (
 from hnn.utils import get_timepoints
 
 
+N_BODIES = 10
+
+
 class HamiltonianDynamics:
     """
     Hamiltonian dynamics class
@@ -35,14 +38,12 @@ class HamiltonianDynamics:
         self.function = function
 
     def dynamics_fn(self, t: torch.Tensor, coords: torch.Tensor):
-        # 1 x 2
+        # 10 x 2
         dcoords = AF.jacobian(self.function, coords)
 
-        # 1
         dqdt, dpdt = dcoords.T
+        S = torch.stack([dpdt, -dqdt], dim=1)
 
-        # 1 x 2
-        S = torch.cat([dpdt, -dqdt], axis=-1)
         return S
 
     @multidispatch
@@ -66,13 +67,16 @@ class HamiltonianDynamics:
         b, a = torch.meshgrid(
             torch.linspace(xmin, xmax, gridsize),
             torch.linspace(ymin, ymax, gridsize),
+            indexing="xy",
         )
-        ys = torch.stack([b.flatten(), a.flatten()]).transpose(0, 1)
+        v = torch.stack([b.flatten(), a.flatten()], dim=1)
+        ys = torch.broadcast_to(v, [N_BODIES, *v.shape])
 
         # get vector directions
-        dydt = [self.dynamics_fn(None, y) for y in ys]
+        # num_samples*t_span[1] x n_bodies
+        dydt = torch.stack([self.dynamics_fn(None, y) for y in ys])
 
-        field = HamiltonianField(meta=locals(), x=ys.unsqueeze(0), dx=torch.stack(dydt))
+        field = HamiltonianField(meta=locals(), x=ys.unsqueeze(0), dx=dydt)
         return field
 
     @multidispatch
@@ -111,41 +115,42 @@ class HamiltonianDynamics:
 
         Args:
             args.t_span: Time span
-            args.y0: Initial conditions
             args.timescale: Timescale
             args.noise_std: Noise standard deviation
             ode_args: Additional arguments
         """
-        t_span, y0, timescale, noise_std = args.dict().values()
+        t_span, timescale, noise_std = args.dict().values()
 
         t = get_timepoints(t_span, timescale)
-        ivp = odeint(self.dynamics_fn, t=t, y0=y0, rtol=1e-10, **ode_args)
+        ivp = odeint(self.dynamics_fn, t=t, rtol=1e-10, **ode_args)
 
-        q, p = ivp[:, 0].unsqueeze(0), ivp[:, 1].unsqueeze(0)
+        # num_samples*t_span[1] x n_bodies
+        q, p = ivp[:, :, 0], ivp[:, :, 1]
+        q += torch.randn(*q.shape) * noise_std  # add noise
+        p += torch.randn(*p.shape) * noise_std  # add noise
+
         dydt = torch.stack([self.dynamics_fn(None, y) for y in ivp])
+        # -> num_samples*t_span[1] x n_bodies
+        dqdt, dpdt = [d.squeeze(-1) for d in torch.tensor_split(dydt, 2, dim=2)]
 
-        # (t.length, 2) -> tup of (1, t.length)
-        dqdt, dpdt = torch.tensor_split(dydt.transpose(0, 1), 2)
-
-        # add noise
-        q += torch.randn(*q.shape) * noise_std
-        p += torch.randn(*p.shape) * noise_std
-
-        # (1, t.length)
         return q, p, dqdt, dpdt, t
 
     @multidispatch
-    def get_dataset(self, args, trajectory_args):
+    def get_dataset(self, args, trajectory_args, ode_args):
         return NotImplemented
 
     @overload
     @get_dataset.register
-    def _(self, args: dict = {}, trajectory_args: dict = {}):
-        return self.get_dataset(DatasetArgs(**args), TrajectoryArgs(**trajectory_args))
+    def _(self, args: dict = {}, trajectory_args: dict = {}, ode_args: dict = {}):
+        return self.get_dataset(
+            DatasetArgs(**args), TrajectoryArgs(**trajectory_args), ode_args
+        )
 
     @overload
     @get_dataset.register
-    def _(self, args: DatasetArgs, trajectory_args: TrajectoryArgs) -> dict:
+    def _(
+        self, args: DatasetArgs, trajectory_args: TrajectoryArgs, ode_args: dict = {}
+    ) -> dict:
         """
         Generate a dataset of trajectories
 
@@ -153,6 +158,7 @@ class HamiltonianDynamics:
         args.num_samples: Number of samples
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
+        ode_args: Additional arguments for the ODE solver
         """
 
         num_samples, test_split = args.dict().values()
@@ -160,11 +166,15 @@ class HamiltonianDynamics:
         torch.seed()
         xs, dxs = [], []
         for s in range(num_samples):
-            x, y, dx, dy, t = self.get_trajectory(trajectory_args)
-            xs.append(torch.stack([x, y]).permute(1, 2, 0))
-            dxs.append(torch.stack([dx, dy]).permute(1, 2, 0))
+            x, y, dx, dy, t = self.get_trajectory(trajectory_args, ode_args)
 
-        # (num_samples, timescale, 2)
+            # (timescale*t_span[1]) x n_bodies x len([q, p]) (????)
+            xs.append(torch.stack([x, y], dim=2).squeeze(-1).unsqueeze(0))
+
+            # (timescale*t_span[1]) x n_bodies x len([q, p])
+            dxs.append(torch.stack([dx, dy], dim=2).squeeze(-1).unsqueeze(0))
+
+        # num_samples x (timescale*t_span[1]) x n_bodies x len([q, p])
         data = {
             "meta": locals(),
             "x": torch.cat(xs),

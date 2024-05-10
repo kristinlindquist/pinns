@@ -12,9 +12,12 @@ def get_timepoints(t_span: tuple[int, int], timescale: int = 30) -> torch.Tensor
     )
 
 
-def integrate_model(model, t_span: tuple[int, int], y0: int, timescale=30, **kwargs):
+def integrate_model(
+    model, t_span: tuple[int, int], y0: torch.Tensor, timescale: int = 30, **kwargs
+):
+    # x torch.Size([10, 2])
     def fun(t, x):
-        if x.ndim == 1:
+        if x.ndim == 2:
             x = x.unsqueeze(0).unsqueeze(0)
         _x = x.clone().detach().requires_grad_()
         dx = model.time_derivative(_x).data

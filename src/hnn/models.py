@@ -47,14 +47,15 @@ class HNN(torch.nn.Module):
     def forward(self, x):
         y = self.differentiable_model(x)
         F1, F2 = torch.tensor_split(y, 2, dim=-1)
-        return F1, F2
+        print("F1", F1.shape, "F2", F2.shape, "y", y.shape)
+        return F1.squeeze(-1), F2.squeeze(-1)
 
     def time_derivative(self, x, t=None, separate_fields=False):
         """
         NEURAL HAMILTONIAN-STLE VECTOR FIELD
         """
+        batch_size, seq_len, n_bodies, dim = x.shape
         F1, F2 = self.forward(x)
-        batch_size, seq_len, dim = x.shape
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)
@@ -63,12 +64,17 @@ class HNN(torch.nn.Module):
         if self.field_type != "solenoidal":
             # gradients for conservative field
             dF1 = torch.autograd.grad(F1.sum(), x, create_graph=True)[0]
-            eye_tensor = torch.eye(dim).to(dF1.device).repeat(batch_size, seq_len, 1, 1)
+            eye_tensor = (
+                torch.eye(dim)
+                .to(dF1.device)
+                .repeat(batch_size, seq_len, n_bodies, 1, 1)
+            )
 
             conservative_field = torch.einsum(
-                "ijkl,ijkm->ijkm", eye_tensor, dF1.unsqueeze(-1)
+                "ijklm,ijkln->ijkln", eye_tensor, dF1.unsqueeze(-1)
             ).squeeze(-1)
 
+        # TODO!!!
         if self.field_type != "conservative":
             # gradients for solenoidal field
             dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
