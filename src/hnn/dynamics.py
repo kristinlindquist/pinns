@@ -128,14 +128,14 @@ class HamiltonianDynamics:
         t = get_timepoints(t_span, timescale)
         ivp = odeint(self.dynamics_fn, t=t, rtol=1e-10, **ode_args)
 
-        # num_samples*t_span[1] x n_bodies
+        # num_samples*t_span[1] x n_bodies x num_dim
         q, p = ivp[:, :, 0], ivp[:, :, 1]
         q += torch.randn(*q.shape) * noise_std  # add noise
         p += torch.randn(*p.shape) * noise_std  # add noise
 
         dydt = torch.stack([self.dynamics_fn(None, y) for y in ivp])
-        # -> num_samples*t_span[1] x n_bodies
-        dqdt, dpdt = [d.squeeze(-1) for d in torch.tensor_split(dydt, 2, dim=2)]
+        # -> num_samples*t_span[1] x n_bodies x num_dim
+        dqdt, dpdt = [d.squeeze() for d in torch.tensor_split(dydt, 2, dim=2)]
 
         return q, p, dqdt, dpdt, t
 
@@ -173,12 +173,12 @@ class HamiltonianDynamics:
             x, y, dx, dy, t = self.get_trajectory(trajectory_args, ode_args)
 
             # (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
-            xs.append(torch.stack([x, y], dim=2))  # ???
+            xs.append(torch.stack([x, y], dim=2).unsqueeze(dim=0))
 
             # (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
-            dxs.append(torch.stack([dx, dy], dim=2))
+            dxs.append(torch.stack([dx, dy], dim=2).unsqueeze(dim=0))
 
-        # num_samples x (timescale*t_span[1]) x n_bodies x len([q, p])
+        # num_samples x (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
         data = {
             "meta": locals(),
             "x": torch.cat(xs),

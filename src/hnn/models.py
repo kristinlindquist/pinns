@@ -53,9 +53,8 @@ class HNN(torch.nn.Module):
         """
         NEURAL HAMILTONIAN-STLE VECTOR FIELD
         """
-        # XS torch.Size([3, 55, 10, 2, 2])
-        print("XS", x.shape)
-        batch_size, n_bodies, timepoints, dim = x.shape
+        # batch_size, (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+        batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
         F1, F2 = self.forward(x)
 
         # start out with both components set to 0
@@ -68,21 +67,23 @@ class HNN(torch.nn.Module):
             eye_tensor = (
                 torch.eye(dim)
                 .to(dF1.device)
-                .repeat(batch_size, n_bodies, timepoints, 1, 1)
+                .repeat(batch_size, timepoints, n_bodies, 1, 1)
             )
 
             conservative_field = torch.einsum(
-                "ijklm,ijkln->ijkln", eye_tensor, dF1.unsqueeze(-1)
+                "ijklm,ijkln->ijkln", eye_tensor, dF1
             ).squeeze(-1)
 
         # TODO!!!
         if self.field_type != "conservative":
             # gradients for solenoidal field
             dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
-            M_tensor = self.M.t().to(dF2.device).repeat(batch_size, seq_len, 1, 1)
-            solenoidal_field = torch.einsum(
-                "ijkl,ijkm->ijkm", M_tensor, dF2.unsqueeze(-1)
-            ).squeeze(-1)
+            M_tensor = (
+                self.M.t().to(dF2.device).repeat(batch_size, timepoints, n_bodies, 1, 1)
+            )
+            solenoidal_field = torch.einsum("ijkl,ijkm->ijkm", M_tensor, dF2).squeeze(
+                -1
+            )
 
         if separate_fields:
             return [conservative_field, solenoidal_field]
