@@ -38,10 +38,10 @@ class HamiltonianDynamics:
         self.function = function
 
     def dynamics_fn(self, t: torch.Tensor, coords: torch.Tensor):
-        # 10 x 2
+        # n_bodies x len([q, p]) x num_dim
         dcoords = AF.jacobian(self.function, coords)
 
-        dqdt, dpdt = dcoords.T
+        dqdt, dpdt = [v.squeeze() for v in torch.split(dcoords, 1, dim=1)]
         S = torch.stack([dpdt, -dqdt], dim=1)
 
         return S
@@ -172,11 +172,11 @@ class HamiltonianDynamics:
         for s in range(num_samples):
             x, y, dx, dy, t = self.get_trajectory(trajectory_args, ode_args)
 
-            # (timescale*t_span[1]) x n_bodies x len([q, p]) (????)
-            xs.append(torch.stack([x, y], dim=2).squeeze(-1).unsqueeze(0))
+            # (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+            xs.append(torch.stack([x, y], dim=2))  # ???
 
-            # (timescale*t_span[1]) x n_bodies x len([q, p])
-            dxs.append(torch.stack([dx, dy], dim=2).squeeze(-1).unsqueeze(0))
+            # (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+            dxs.append(torch.stack([dx, dy], dim=2))
 
         # num_samples x (timescale*t_span[1]) x n_bodies x len([q, p])
         data = {

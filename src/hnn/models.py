@@ -53,7 +53,9 @@ class HNN(torch.nn.Module):
         """
         NEURAL HAMILTONIAN-STLE VECTOR FIELD
         """
-        batch_size, seq_len, n_bodies, dim = x.shape
+        # XS torch.Size([3, 55, 10, 2, 2])
+        print("XS", x.shape)
+        batch_size, n_bodies, timepoints, dim = x.shape
         F1, F2 = self.forward(x)
 
         # start out with both components set to 0
@@ -66,7 +68,7 @@ class HNN(torch.nn.Module):
             eye_tensor = (
                 torch.eye(dim)
                 .to(dF1.device)
-                .repeat(batch_size, seq_len, n_bodies, 1, 1)
+                .repeat(batch_size, n_bodies, timepoints, 1, 1)
             )
 
             conservative_field = torch.einsum(
@@ -92,6 +94,7 @@ class HNN(torch.nn.Module):
         if self.assume_canonical_coords:
             M = torch.eye(n)
             M = torch.cat([M[n // 2 :], -M[: n // 2]])
+            # M = torch.cat([M[n:], -M[:n]])
         else:
             """
             Constructs the Levi-Civita permutation tensor
