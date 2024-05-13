@@ -16,7 +16,7 @@ class TrajectoryArgs(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     t_span: tuple[int, int]
     timescale: int = 5
-    noise_std: float = 0.1
+    noise_std: float = 0.05
 
 
 class FieldArgs(BaseModel):

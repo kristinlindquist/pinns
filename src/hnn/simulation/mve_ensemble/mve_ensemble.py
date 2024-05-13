@@ -9,9 +9,9 @@ from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
 def get_initial_conditions(
     n_bodies: int,
     n_dims: int = 2,
-    width: int = 100,
-    height: int = 100,
-    temp: float = 75.0,
+    width: int = 10,
+    height: int = 10,
+    temp: float = 5.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generate initial conditions for a system of particles.
@@ -20,16 +20,17 @@ def get_initial_conditions(
     masses = torch.ones(n_bodies)
 
     # initialize positions
-    q = torch.rand(n_bodies, n_dims) * torch.tensor([width, height])
+    xy = torch.rand(n_bodies, n_dims) * torch.tensor([width, height])
 
     # initialize velocities (Maxwell-Boltzmann distribution scaled by temp)
     v = torch.randn(n_bodies, n_dims) * torch.sqrt(torch.tensor([temp]))
 
     # Ensure zero total momentum
     total_momentum = v.sum(0)
-    p = v - (total_momentum / n_bodies)
+    v -= total_momentum / n_bodies
+    v = torch.round(v, decimals=2)
 
-    coords = torch.stack([q, p], dim=1)  # n_bodies x 2 x n_dims
+    coords = torch.stack([xy, v], dim=1)  # n_bodies x 2 x n_dims
 
     return coords, masses
 
@@ -82,15 +83,13 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
                 n_particles x timepoints x 2
         masses (torch.Tensor): Tensor containing masses of particles
     """
-    # norm is sqrt(x^2 + y^2)
-    scalar_velocities = torch.norm(velocities, dim=-1)
-
-    return_dim = 0 if len(scalar_velocities.shape) > 1 else None
-    for i in range(len(scalar_velocities.shape) - 1):
+    return_dim = 0 if len(velocities.shape) > 2 else None
+    for i in range(len(velocities.shape) - 1):
         masses = masses.unsqueeze(-1)
 
-    kinetics = scalar_velocities**2 / (2 * masses)
-    return torch.sum(kinetics, dim=return_dim)
+    kinetics = 0.5 * masses * velocities**2
+    kinetics_sum = torch.sum(kinetics, dim=return_dim)
+    return torch.norm(kinetics_sum, dim=-1)
 
 
 def mve_ensemble_fn(
@@ -102,7 +101,7 @@ def mve_ensemble_fn(
     Hamiltonian for a generalized MVE ensemble.
 
     Args:
-        coords (torch.Tensor): Coordinates (positions and momenta) (n_particles x 2 x n_dims)
+        coords (torch.Tensor): Coordinates (positions and velocities) (n_particles x 2 x n_dims)
         masses (torch.Tensor): Masses of each particle (n_particles)
         potential_fn (callable): Function that computes the potential energy given positions
 
@@ -110,13 +109,13 @@ def mve_ensemble_fn(
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
     # Split coordinates into positions and velocity (num_particles x num_dims)
-    q, p = [v.squeeze() for v in torch.split(coords, 1, dim=1)]
+    xy, v = [v.squeeze() for v in torch.split(coords, 1, dim=1)]
 
     # Compute kinetic energy
-    kinetic_energy = calc_kinetic_energy(p, masses)
+    kinetic_energy = calc_kinetic_energy(v, masses)
 
     # Compute potential energy
-    potential_energy = potential_fn(q)
+    potential_energy = potential_fn(xy)
 
     # Hamiltonian (Total Energy)
     H = kinetic_energy + potential_energy
