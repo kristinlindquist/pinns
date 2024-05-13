@@ -36,7 +36,7 @@ class HNN(torch.nn.Module):
         input_dim: int,
         differentiable_model,
         field_type: str = "solenoidal",
-        assume_canonical_coords: bool = True,
+        assume_canonical_coords: bool = False,
     ):
         super(HNN, self).__init__()
         self.differentiable_model = differentiable_model

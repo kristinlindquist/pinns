@@ -15,6 +15,13 @@ def get_initial_conditions(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generate initial conditions for a system of particles.
+
+    Args:
+        n_bodies (int): Number of particles
+        n_dims (int): Number of dimensions
+        width (int): Width of the space
+        height (int): Height of the space
+        temp (float): Temperature of the system
     """
     # initialize masses
     masses = torch.ones(n_bodies)
@@ -32,9 +39,6 @@ def get_initial_conditions(
     coords = torch.stack([xy, v], dim=1)  # n_bodies x 2 x n_dims
 
     return coords, masses
-
-
-DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10)}
 
 
 def calc_lennard_jones_potential(
@@ -102,7 +106,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
     return kinetic_energy.mean()
 
 
-def mve_ensemble_fn(  # Adjust for timepoints: (n_particles, 1) to (n_particles, 1, 1)
+def mve_ensemble_fn(
     coords: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
@@ -138,6 +142,9 @@ def get_mve_ensemble_fn(masses: torch.Tensor, potential_fn):
         return mve_ensemble_fn(coords, masses, potential_fn)
 
     return _mve_ensemble_fn
+
+
+DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10)}
 
 
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
