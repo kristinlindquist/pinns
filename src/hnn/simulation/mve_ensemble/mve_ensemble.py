@@ -9,8 +9,8 @@ from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
 def get_initial_conditions(
     n_bodies: int,
     n_dims: int = 2,
-    width: int = 10,
-    height: int = 10,
+    width: int = 5,
+    height: int = 5,
     temp: float = 5.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -28,7 +28,6 @@ def get_initial_conditions(
     # Ensure zero total momentum
     total_momentum = v.sum(0)
     v -= total_momentum / n_bodies
-    v = torch.round(v, decimals=2)
 
     coords = torch.stack([xy, v], dim=1)  # n_bodies x 2 x n_dims
 
@@ -83,16 +82,27 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
                 n_particles x timepoints x 2
         masses (torch.Tensor): Tensor containing masses of particles
     """
-    return_dim = 0 if len(velocities.shape) > 2 else None
-    for i in range(len(velocities.shape) - 1):
+    if len(masses.shape) == 1:
+        # Reshape from (n_particles,) to (n_particles, 1)
         masses = masses.unsqueeze(-1)
 
+    # Ensure masses can broadcast correctly with velocities
+    if len(velocities.shape) == 3:
+        # Adjust for timepoints: (n_particles, 1) to (n_particles, 1, 1)
+        masses = masses.unsqueeze(1)
+
     kinetics = 0.5 * masses * velocities**2
-    kinetics_sum = torch.sum(kinetics, dim=return_dim)
-    return torch.norm(kinetics_sum, dim=-1)
+    kinetic_energy = torch.sum(kinetics, dim=-1)
+
+    # Average the kinetic energies over all particles
+    if kinetic_energy.dim() > 1:
+        # If we have timepoints, average across all particles for each timepoint
+        return kinetic_energy.mean(dim=0)
+
+    return kinetic_energy.mean()
 
 
-def mve_ensemble_fn(
+def mve_ensemble_fn(  # Adjust for timepoints: (n_particles, 1) to (n_particles, 1, 1)
     coords: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
