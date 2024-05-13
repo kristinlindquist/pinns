@@ -34,12 +34,13 @@ class HamiltonianDynamics:
         """
         self.function = function
 
-    def dynamics_fn(self, t: torch.Tensor, coords: torch.Tensor):
+    def dynamics_fn(self, t: torch.Tensor, state: torch.Tensor):
         # n_bodies x 2 x num_dim
-        dcoords = AF.jacobian(self.function, coords)
+        d_state = AF.jacobian(self.function, state)
 
-        dqdt, dpdt = [v.squeeze() for v in torch.split(dcoords, 1, dim=1)]
-        S = torch.stack([dpdt, -dqdt], dim=1)
+        # d position, d velocity
+        dcdt, dvdt = [v.squeeze() for v in torch.split(d_state, 1, dim=1)]
+        S = torch.stack([dvdt, -dcdt], dim=1)
 
         return S
 
@@ -124,15 +125,15 @@ class HamiltonianDynamics:
         ivp = odeint(self.dynamics_fn, t=t, rtol=1e-10, **ode_args)
 
         # num_samples*t_span[1] x n_bodies x num_dim
-        q, p = ivp[:, :, 0], ivp[:, :, 1]
-        q += torch.randn(*q.shape) * noise_std  # add noise
-        p += torch.randn(*p.shape) * noise_std  # add noise
+        coords, velos = ivp[:, :, 0], ivp[:, :, 1]
+        coords += torch.randn(*coords.shape) * noise_std  # add noise
+        velos += torch.randn(*velos.shape) * noise_std  # add noise
 
-        dydt = torch.stack([self.dynamics_fn(None, y) for y in ivp])
+        dsdt = torch.stack([self.dynamics_fn(None, s) for s in ivp])
         # -> num_samples*t_span[1] x n_bodies x num_dim
-        dqdt, dpdt = [d.squeeze() for d in torch.tensor_split(dydt, 2, dim=2)]
+        dcdt, dvdt = [d.squeeze() for d in torch.tensor_split(dsdt, 2, dim=2)]
 
-        return q, p, dqdt, dpdt, t
+        return coords, velos, dcdt, dvdt, t
 
     @multidispatch
     def get_dataset(self, args, trajectory_args, ode_args):
@@ -165,13 +166,13 @@ class HamiltonianDynamics:
         torch.seed()
         xs, dxs = [], []
         for s in range(num_samples):
-            x, y, dx, dy, t = self.get_trajectory(trajectory_args, ode_args)
+            coords, velos, dc, dv, t = self.get_trajectory(trajectory_args, ode_args)
 
             # (timescale*t_span[1]) x n_bodies x 2 x num_dim
-            xs.append(torch.stack([x, y], dim=2).unsqueeze(dim=0))
+            xs.append(torch.stack([coords, velos], dim=2).unsqueeze(dim=0))
 
             # (timescale*t_span[1]) x n_bodies x 2 x num_dim
-            dxs.append(torch.stack([dx, dy], dim=2).unsqueeze(dim=0))
+            dxs.append(torch.stack([dc, dv], dim=2).unsqueeze(dim=0))
 
         # num_samples x (timescale*t_span[1]) x n_bodies x 2 x num_dim
         data = {
