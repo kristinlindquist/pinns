@@ -28,6 +28,7 @@ def train(args, data):
         optim.zero_grad()
         dxdt_hat = model.time_derivative(x)
         loss = L2_loss(dxdt, dxdt_hat)
+        # grad = torch.cat([p.grad.flatten() for p in model.parameters()]).clone()
         loss.backward()
         optim.step()
 
@@ -41,7 +42,7 @@ def train(args, data):
         stats["test_loss"].append(test_loss.item())
         print(
             "step {}, train_loss {:.4e}, test_loss {:.4e}".format(
-                step, loss.item(), test_loss.item()
+                step, loss.item(), test_loss.item()  # , grad @ grad, grad.std()
             )
         )
 

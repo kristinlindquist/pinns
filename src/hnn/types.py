@@ -28,5 +28,5 @@ class FieldArgs(BaseModel):
 
 
 class DatasetArgs(BaseModel):
-    num_samples: int = 20
+    num_samples: int = 30
     test_split: float = 0.5

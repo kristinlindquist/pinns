@@ -90,10 +90,10 @@ class HNN(torch.nn.Module):
 
         return conservative_field + solenoidal_field
 
-    def permutation_tensor(self, n):
+    def permutation_tensor(self, n: int):
         M = None
         if self.assume_canonical_coords:
-            M = torch.eye(n)
+            M = torch.eye(n)  # diagonal matrix
             M = torch.cat([M[n // 2 :], -M[: n // 2]])
             # M = torch.cat([M[n:], -M[:n]])
         else:

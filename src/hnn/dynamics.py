@@ -17,9 +17,6 @@ from hnn.types import (
 from hnn.utils import get_timepoints
 
 
-N_BODIES = 10
-
-
 class HamiltonianDynamics:
     """
     Hamiltonian dynamics class
@@ -38,7 +35,7 @@ class HamiltonianDynamics:
         self.function = function
 
     def dynamics_fn(self, t: torch.Tensor, coords: torch.Tensor):
-        # n_bodies x len([q, p]) x num_dim
+        # n_bodies x 2 x num_dim
         dcoords = AF.jacobian(self.function, coords)
 
         dqdt, dpdt = [v.squeeze() for v in torch.split(dcoords, 1, dim=1)]
@@ -61,7 +58,6 @@ class HamiltonianDynamics:
         self,
         args: FieldArgs = FieldArgs(),
     ) -> HamiltonianField:
-        # torch.Size([33, 10])
         xmin, xmax, ymin, ymax, gridsize = args.dict().values()
 
         # meshgrid to get vector field
@@ -70,8 +66,7 @@ class HamiltonianDynamics:
             torch.linspace(ymin, ymax, gridsize),
             indexing="xy",
         )
-        v = torch.stack([b.flatten(), a.flatten()], dim=1)
-        ys = torch.broadcast_to(v, [N_BODIES, *v.shape])
+        ys = torch.stack([b.flatten(), a.flatten()], dim=1)
 
         # get vector directions
         # num_samples*t_span[1] x n_bodies
@@ -172,13 +167,13 @@ class HamiltonianDynamics:
         for s in range(num_samples):
             x, y, dx, dy, t = self.get_trajectory(trajectory_args, ode_args)
 
-            # (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+            # (timescale*t_span[1]) x n_bodies x 2 x num_dim
             xs.append(torch.stack([x, y], dim=2).unsqueeze(dim=0))
 
-            # (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+            # (timescale*t_span[1]) x n_bodies x 2 x num_dim
             dxs.append(torch.stack([dx, dy], dim=2).unsqueeze(dim=0))
 
-        # num_samples x (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+        # num_samples x (timescale*t_span[1]) x n_bodies x 2 x num_dim
         data = {
             "meta": locals(),
             "x": torch.cat(xs),
