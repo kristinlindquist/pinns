@@ -27,29 +27,29 @@ def get_initial_conditions(
     masses = torch.ones(n_bodies)
 
     # initialize positions
-    xy = torch.rand(n_bodies, n_dims) * torch.tensor([width, height])
+    coords = torch.rand(n_bodies, n_dims) * torch.tensor([width, height])
 
     # initialize velocities (Maxwell-Boltzmann distribution scaled by temp)
-    v = torch.randn(n_bodies, n_dims) * torch.sqrt(torch.tensor([temp]))
+    velocities = torch.randn(n_bodies, n_dims) * torch.sqrt(torch.tensor([temp]))
 
     # Ensure zero total momentum
-    total_momentum = v.sum(0)
-    v -= total_momentum / n_bodies
+    total_momentum = velocities.sum(0)
+    velocities -= total_momentum / n_bodies
 
-    coords = torch.stack([xy, v], dim=1)  # n_bodies x 2 x n_dims
+    coords = torch.stack([coords, velocities], dim=1)  # n_bodies x 2 x n_dims
 
     return coords, masses
 
 
 def calc_lennard_jones_potential(
-    positions: torch.Tensor, σ: float = 1.0, ε: float = 1.0
+    coords: torch.Tensor, σ: float = 1.0, ε: float = 1.0
 ) -> torch.Tensor:
     """
     Lennard-Jones potential function.
     V(r) = 4 * ε * ((σ / r)^12 - (σ / r)^6
 
     Args:
-        positions (torch.Tensor): Tensor containing positions of particles
+        coords (torch.Tensor): Tensor containing positions of particles
             size:
                 n_particles x 2 or
                 n_particles x timepoints x 2
@@ -61,13 +61,13 @@ def calc_lennard_jones_potential(
 
     See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
-    n_particles = positions.shape[0]
-    return_dim = len(positions.shape) - 2
+    n_particles = coords.shape[0]
+    return_dim = len(coords.shape) - 2
 
     v = 0.0
     for i in range(n_particles):
         for j in range(i + 1, n_particles):
-            r = torch.linalg.vector_norm(positions[i] - positions[j], dim=return_dim)
+            r = torch.linalg.vector_norm(coords[i] - coords[j], dim=return_dim)
             r12 = (σ / r) ** 12
             r6 = (σ / r) ** 6
             v += 4 * ε * (r12 - r6)
@@ -107,7 +107,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
 
 def mve_ensemble_fn(
-    coords: torch.Tensor,
+    state: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
 ) -> torch.Tensor:
@@ -115,7 +115,7 @@ def mve_ensemble_fn(
     Hamiltonian for a generalized MVE ensemble.
 
     Args:
-        coords (torch.Tensor): Coordinates (positions and velocities) (n_particles x 2 x n_dims)
+        state (torch.Tensor): State (positions and velocities) (n_particles x 2 x n_dims)
         masses (torch.Tensor): Masses of each particle (n_particles)
         potential_fn (callable): Function that computes the potential energy given positions
 
@@ -123,13 +123,13 @@ def mve_ensemble_fn(
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
     # Split coordinates into positions and velocity (num_particles x num_dims)
-    xy, v = [v.squeeze() for v in torch.split(coords, 1, dim=1)]
+    coords, velocities = [v.squeeze() for v in torch.split(state, 1, dim=1)]
 
     # Compute kinetic energy
-    kinetic_energy = calc_kinetic_energy(v, masses)
+    kinetic_energy = calc_kinetic_energy(velocities, masses)
 
     # Compute potential energy
-    potential_energy = potential_fn(xy)
+    potential_energy = potential_fn(coords)
 
     # Hamiltonian (Total Energy)
     H = kinetic_energy + potential_energy
@@ -138,8 +138,8 @@ def mve_ensemble_fn(
 
 
 def get_mve_ensemble_fn(masses: torch.Tensor, potential_fn):
-    def _mve_ensemble_fn(coords: torch.Tensor) -> torch.Tensor:
-        return mve_ensemble_fn(coords, masses, potential_fn)
+    def _mve_ensemble_fn(state: torch.Tensor) -> torch.Tensor:
+        return mve_ensemble_fn(state, masses, potential_fn)
 
     return _mve_ensemble_fn
 
