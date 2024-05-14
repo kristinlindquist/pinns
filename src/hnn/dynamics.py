@@ -38,6 +38,8 @@ class HamiltonianDynamics:
         # n_bodies x 2 x num_dim
         d_state = AF.jacobian(self.function, state)
 
+        print(d_state.shape)
+
         drdt, dvdt = [v.squeeze() for v in torch.split(d_state, 1, dim=1)]
         S = torch.stack([dvdt, -drdt], dim=1)
 

@@ -150,9 +150,10 @@ DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10)}
 
 
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
-    def __init__(self, n_bodies: int = 5):
+    def __init__(self, n_bodies: int = 5, dimensions: tuple[int, int] = (0, 100)):
         y0, masses = get_initial_conditions(n_bodies)
         self.y0 = y0
+        self.dimensions = dimensions
         mve_ensemble_fn = get_mve_ensemble_fn(
             masses, potential_fn=calc_lennard_jones_potential
         )
