@@ -74,7 +74,6 @@ class HNN(torch.nn.Module):
                 "ijklm,ijkln->ijkln", eye_tensor, dF1
             ).squeeze(-1)
 
-        # TODO!!!
         if self.field_type != "conservative":
             # gradients for solenoidal field
             dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
