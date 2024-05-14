@@ -53,8 +53,8 @@ def calc_lennard_jones_potential(
     Args:
         coords (torch.Tensor): Tensor containing positions of particles
             size:
-                n_particles x 2 or
-                n_particles x timepoints x 2
+                n_bodies x 2 or
+                n_bodies x timepoints x 2
         σ (float): "the distance at which the particle-particle potential energy V is zero"
         ε (float): "depth of the potential well"
 
@@ -63,12 +63,12 @@ def calc_lennard_jones_potential(
 
     See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
-    n_particles = coords.shape[0]
+    n_bodies = coords.shape[0]
     return_dim = len(coords.shape) - 2
 
     v = 0.0
-    for i in range(n_particles):
-        for j in range(i + 1, n_particles):
+    for i in range(n_bodies):
+        for j in range(i + 1, n_bodies):
             r = torch.linalg.vector_norm(coords[i] - coords[j], dim=return_dim)
             r12 = (σ / r) ** 12
             r6 = (σ / r) ** 6
@@ -84,17 +84,17 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
     Args:
         velocities (torch.Tensor): Tensor containing xy velocities of particles
             size:
-                n_particles x 2 or
-                n_particles x timepoints x 2
+                n_bodies x 2 or
+                n_bodies x timepoints x 2
         masses (torch.Tensor): Tensor containing masses of particles
     """
     if len(masses.shape) == 1:
-        # Reshape from (n_particles,) to (n_particles, 1)
+        # Reshape from (n_bodies,) to (n_bodies, 1)
         masses = masses.unsqueeze(-1)
 
     # Ensure masses can broadcast correctly with velocities
     if len(velocities.shape) == 3:
-        # Adjust for timepoints: (n_particles, 1) to (n_particles, 1, 1)
+        # Adjust for timepoints: (n_bodies, 1) to (n_bodies, 1, 1)
         masses = masses.unsqueeze(1)
 
     kinetics = 0.5 * masses * velocities**2
@@ -117,8 +117,8 @@ def mve_ensemble_fn(
     Hamiltonian for a generalized MVE ensemble.
 
     Args:
-        state (torch.Tensor): State (positions and velocities) (n_particles x 2 x n_dims)
-        masses (torch.Tensor): Masses of each particle (n_particles)
+        state (torch.Tensor): State (positions and velocities) (n_bodies x 2 x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
 
     Returns:
@@ -150,14 +150,15 @@ DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10)}
 
 
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
-    def __init__(self, n_bodies: int = 5, dimensions: tuple[int, int] = (0, 100)):
+    def __init__(self, n_bodies: int = 5, dimensions: tuple[int, int] = (0, 50)):
         y0, masses = get_initial_conditions(n_bodies)
         self.y0 = y0
-        self.dimensions = dimensions
         mve_ensemble_fn = get_mve_ensemble_fn(
             masses, potential_fn=calc_lennard_jones_potential
         )
-        super(MveEnsembleHamiltonianDynamics, self).__init__(mve_ensemble_fn)
+        super(MveEnsembleHamiltonianDynamics, self).__init__(
+            mve_ensemble_fn, dimensions
+        )
 
     @overload
     @HamiltonianDynamics.get_dataset.register
@@ -167,6 +168,10 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
 
     @overload
     @HamiltonianDynamics.get_trajectory.register
-    def _(self, args: dict, ode_args: dict = {}) -> HamiltonianField:
+    def _(
+        self,
+        args: dict,
+        ode_args: dict = {},
+    ) -> HamiltonianField:
         traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **args})
         return self.get_trajectory(traj_args, {"y0": self.y0, **ode_args})

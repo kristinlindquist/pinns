@@ -5,6 +5,7 @@ from torchdiffeq import odeint
 import torch.autograd.functional as AF
 from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
+from scipy.interpolate import CubicSpline
 
 
 from hnn.types import (
@@ -22,10 +23,7 @@ class HamiltonianDynamics:
     Hamiltonian dynamics class
     """
 
-    def __init__(
-        self,
-        function: HamiltonianFunction,
-    ):
+    def __init__(self, function: HamiltonianFunction, dimensions: tuple[int, int]):
         """
         Initialize the class
 
@@ -33,15 +31,60 @@ class HamiltonianDynamics:
             function: Hamiltonian function
         """
         self.function = function
+        self.dimensions = dimensions
+
+        self.boundaries = (dimensions[0] + 0.1, dimensions[1] - 0.1)
+        self.splines = {
+            "x": CubicSpline(self.boundaries, dimensions),
+            "y": CubicSpline(self.boundaries, dimensions),
+            "z": CubicSpline(self.boundaries, dimensions),
+        }
+
+    def update_acceleration(self, position, acceleration: float, dimension: str):
+        """
+        Adjusts acceleration based on the position within the transition zone.
+        """
+        if position < self.boundaries[0]:
+            return acceleration  # No adjustment
+        elif self.boundaries[0] <= position <= self.boundaries[1]:
+            # Adjust acceleration by multiplying initial acceleration by the spline output
+            return acceleration * self.splines[dimension](position)
+        else:
+            return 0  # No acceleration beyond the boundary
+
+    def adjust_jacobian_for_boundaries(self, jacobian, pos):
+        """
+        Adjust the Jacobian matrix to account for boundary conditions.
+
+        Args:
+            jacobian: Jacobian matrix (n_bodies, 2, num_dim)
+        """
+        for i in range(len(pos)):
+            jacobian[i, 1, 0] = self.update_acceleration(
+                pos[i, 0], jacobian[i, 1, 0], "x"
+            )
+            jacobian[i, 1, 1] = self.update_acceleration(
+                pos[i, 1], jacobian[i, 1, 1], "y"
+            )
+            jacobian[i, 1, 2] = self.update_acceleration(
+                pos[i, 2], jacobian[i, 1, 2], "z"
+            )
+
+        return jacobian
 
     def dynamics_fn(self, t: torch.Tensor, state: torch.Tensor):
         # n_bodies x 2 x num_dim
         d_state = AF.jacobian(self.function, state)
 
-        print(d_state.shape)
+        bc_d_state = self.adjust_jacobian_for_boundaries(
+            d_state,
+            d_state[:, 0, :],
+        )
 
-        drdt, dvdt = [v.squeeze() for v in torch.split(d_state, 1, dim=1)]
+        drdt, dvdt = [v.squeeze() for v in torch.split(bc_d_state, 1, dim=1)]
+        # return the Hamiltonian update: dvdt = -dHdr; drdt = dHdv
         S = torch.stack([dvdt, -drdt], dim=1)
+        print(S)
 
         return S
 
@@ -130,8 +173,9 @@ class HamiltonianDynamics:
         v += torch.randn(*v.shape) * noise_std  # add noise
 
         dsdt = torch.stack([self.dynamics_fn(None, s) for s in ivp])
+        print("DSDT", dsdt.shape, torch.split(dsdt, 1, dim=2)[0].shape)
         # -> num_samples*t_span[1] x n_bodies x num_dim
-        drdt, dvdt = [d.squeeze() for d in torch.tensor_split(dsdt, 2, dim=2)]
+        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         return r, v, drdt, dvdt, t
 
