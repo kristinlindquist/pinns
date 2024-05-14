@@ -8,9 +8,10 @@ from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
 
 def get_initial_conditions(
     n_bodies: int,
-    n_dims: int = 2,
+    n_dims: int = 3,
     width: int = 5,
     height: int = 5,
+    depth: int = 5,
     temp: float = 5.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -27,7 +28,8 @@ def get_initial_conditions(
     masses = torch.ones(n_bodies)
 
     # initialize positions
-    r = torch.rand(n_bodies, n_dims) * torch.tensor([width, height])
+    possible_dims = [width, height, depth]
+    r = torch.rand(n_bodies, n_dims) * torch.tensor(possible_dims[:n_dims])
 
     # initialize velocities (simplified Maxwell-Boltzmann distribution scaled by temp)
     v = torch.randn(n_bodies, n_dims) * torch.sqrt(torch.tensor([temp]))
