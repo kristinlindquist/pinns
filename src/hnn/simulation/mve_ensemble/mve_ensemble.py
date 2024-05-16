@@ -1,9 +1,10 @@
-from typing import overload
+from typing import overload, Callable
 from multimethod import multidispatch
 import torch
+from functools import partial
 
 from hnn.dynamics import HamiltonianDynamics
-from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
+from hnn.types import DatasetArgs, HamiltonianField
 
 
 def get_initial_conditions(
@@ -43,15 +44,37 @@ def get_initial_conditions(
     return state, masses
 
 
+def boundary_potential(positions: torch.Tensor, boundary: float, steepness: float):
+    """
+    A potential energy function that increases near a boundary
+    """
+    return steepness * torch.exp(-torch.abs(positions - boundary))
+
+
+def total_potential_energy(
+    natural_potential_fn: Callable,
+    positions: torch.Tensor,
+    boundaries: tuple[float, float],
+    steepness: float = 100.0,
+):
+    """
+    Total potential energy including boundary effects
+    """
+    boundary_effect = torch.sum(
+        torch.stack([boundary_potential(positions, b, steepness) for b in boundaries])
+    )
+    return natural_potential_fn(positions) + boundary_effect
+
+
 def calc_lennard_jones_potential(
-    coords: torch.Tensor, σ: float = 1.0, ε: float = 1.0
+    positions: torch.Tensor, σ: float = 1.0, ε: float = 1.0
 ) -> torch.Tensor:
     """
     Lennard-Jones potential function.
     V(r) = 4 * ε * ((σ / r)^12 - (σ / r)^6
 
     Args:
-        coords (torch.Tensor): Tensor containing positions of particles
+        positions (torch.Tensor): Tensor containing positions of particles
             size:
                 n_bodies x 2 or
                 n_bodies x timepoints x 2
@@ -63,13 +86,13 @@ def calc_lennard_jones_potential(
 
     See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
-    n_bodies = coords.shape[0]
-    return_dim = len(coords.shape) - 2
+    n_bodies = positions.shape[0]
+    return_dim = len(positions.shape) - 2
 
     v = 0.0
     for i in range(n_bodies):
         for j in range(i + 1, n_bodies):
-            r = torch.linalg.vector_norm(coords[i] - coords[j], dim=return_dim)
+            r = torch.linalg.vector_norm(positions[i] - positions[j], dim=return_dim)
             r12 = (σ / r) ** 12
             r6 = (σ / r) ** 6
             v += 4 * ε * (r12 - r6)
@@ -139,39 +162,26 @@ def mve_ensemble_fn(
     return H
 
 
-def get_mve_ensemble_fn(masses: torch.Tensor, potential_fn):
-    def _mve_ensemble_fn(state: torch.Tensor) -> torch.Tensor:
-        return mve_ensemble_fn(state, masses, potential_fn)
-
-    return _mve_ensemble_fn
-
-
-DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 25)}
-
-
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
-    def __init__(self, n_bodies: int = 5, dimensions: tuple[int, int] = (0, 10)):
+    def __init__(
+        self,
+        n_bodies: int = 5,
+        domain: tuple[int, int] = (0, 10),
+        t_span: tuple[int, int] = (0, 5),
+    ):
         y0, masses = get_initial_conditions(n_bodies)
         self.y0 = y0
-        mve_ensemble_fn = get_mve_ensemble_fn(
-            masses, potential_fn=calc_lennard_jones_potential
+
+        potential_fn = partial(
+            total_potential_energy,
+            calc_lennard_jones_potential,
+            boundaries=domain,
         )
+
+        _mve_ensemble_fun = partial(
+            mve_ensemble_fn, masses=masses, potential_fn=potential_fn
+        )
+
         super(MveEnsembleHamiltonianDynamics, self).__init__(
-            mve_ensemble_fn, dimensions
+            _mve_ensemble_fun, domain, t_span=t_span, y0=y0
         )
-
-    @overload
-    @HamiltonianDynamics.get_dataset.register
-    def _(self, args: dict, trajectory_args: dict):
-        traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **trajectory_args})
-        return self.get_dataset(DatasetArgs(**args), traj_args, {"y0": self.y0})
-
-    @overload
-    @HamiltonianDynamics.get_trajectory.register
-    def _(
-        self,
-        args: dict,
-        ode_args: dict = {},
-    ) -> HamiltonianField:
-        traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **args})
-        return self.get_trajectory(traj_args, {"y0": self.y0, **ode_args})

@@ -17,30 +17,6 @@ from hnn.types import (
 from hnn.utils import get_timepoints
 
 
-def smooth_bounce(
-    position: float,
-    boundaries: tuple[float, float],
-    width: float = 0.001,
-):
-    """
-    Calculate the velocity change as a smooth function that simulates bouncing.
-
-    Args:
-        position (float): The position of the ball.
-        boundaries (tuple[float, float]): The position of the wall.
-        width (float): The distance over which the effect of the boundary is smoothed.
-
-    Returns:
-        float: velocity adjustment
-
-    TODO:
-        - >1 bounce within repulsion range?
-    """
-    left_effect = torch.tanh((position - boundaries[0]) / width)
-    right_effect = torch.tanh((boundaries[1] - position) / width)
-    return left_effect * right_effect
-
-
 class HamiltonianDynamics:
     """
     Hamiltonian dynamics class
@@ -49,63 +25,33 @@ class HamiltonianDynamics:
     def __init__(
         self,
         function: HamiltonianFunction,
-        dimensions: tuple[int, int],
-        boundary_width: float = 0.01,
+        domain: tuple[int, int],
+        y0: torch.Tensor,
+        t_span: tuple[int, int] = (0, 10),
     ):
         """
         Initialize the class
 
         Args:
             function: Hamiltonian function
+            domain (tuple[int, int]): domain (boundary) for all dimensions
         """
         self.function = function
-        self.dimensions = dimensions
-        self.boundaries = (
-            dimensions[0] + boundary_width,
-            dimensions[1] - boundary_width,
-        )
-        self.boundary_width = boundary_width
+        self.domain = domain
+        self.y0 = y0
+        self.t_span = t_span
 
-    def update_acceleration(self, position, acceleration: float, dimension: str):
+    def dynamics_fn(self, t: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
         """
-        Adjusts acceleration based on the position within the transition zone.
+        Hamiltonian dynamics function
+
+        Finds the Jacobian of the Hamiltonian function
         """
-        return (
-            smooth_bounce(position, self.dimensions, self.boundary_width * 0.1)
-            * acceleration
-        )
-
-    def adjust_jacobian_for_boundaries(self, jacobian, pos):
-        """
-        Adjust the Jacobian matrix to account for boundary conditions.
-
-        Args:
-            jacobian: Jacobian matrix (n_bodies, 2, num_dim)
-        """
-        for i in range(len(pos)):
-            jacobian[i, 1, 0] = self.update_acceleration(
-                pos[i, 0], jacobian[i, 1, 0], "x"
-            )
-            jacobian[i, 1, 1] = self.update_acceleration(
-                pos[i, 1], jacobian[i, 1, 1], "y"
-            )
-            jacobian[i, 1, 2] = self.update_acceleration(
-                pos[i, 2], jacobian[i, 1, 2], "z"
-            )
-
-        return jacobian
-
-    def dynamics_fn(self, t: torch.Tensor, state: torch.Tensor):
         # n_bodies x 2 x num_dim
         d_state = AF.jacobian(self.function, state)
 
-        bc_d_state = self.adjust_jacobian_for_boundaries(
-            d_state,
-            state[:, 0, :],
-        )
-
-        drdt, dvdt = [v.squeeze() for v in torch.split(bc_d_state, 1, dim=1)]
-        # return the Hamiltonian update: dvdt = -dHdr; drdt = dHdv
+        drdt, dvdt = [v.squeeze() for v in torch.split(d_state, 1, dim=1)]
+        # dvdt = -dHdr; drdt = dHdv
         S = torch.stack([dvdt, -drdt], dim=1)
 
         return S
@@ -133,12 +79,12 @@ class HamiltonianDynamics:
             torch.linspace(ymin, ymax, gridsize),
             indexing="xy",
         )
-        ys = torch.stack([b.flatten(), a.flatten()], dim=1)
+        states = torch.stack([b.flatten(), a.flatten()], dim=1)
 
         # num_samples*t_span[1] x n_bodies
-        dydt = torch.stack([self.dynamics_fn(None, y) for y in ys])
+        dsdt = torch.stack([self.dynamics_fn(None, s) for s in states])
 
-        field = HamiltonianField(meta=locals(), x=ys, dx=dydt)
+        field = HamiltonianField(meta=locals(), x=ys, dx=dsdt)
         return field
 
     @multidispatch
@@ -179,15 +125,14 @@ class HamiltonianDynamics:
         Get a trajectory
 
         Args:
-            args.t_span: Time span
             args.timescale: Timescale
             args.noise_std: Noise standard deviation
             ode_args: Additional arguments
         """
-        t_span, timescale, noise_std = args.dict().values()
+        timescale, noise_std = args.dict().values()
 
-        t = get_timepoints(t_span, timescale)
-        ivp = odeint(self.dynamics_fn, t=t, rtol=1e-10, **ode_args)
+        t = get_timepoints(self.t_span, timescale)
+        ivp = odeint(self.dynamics_fn, t=t, rtol=1e-10, y0=self.y0, **ode_args)
 
         # num_samples*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
