@@ -84,7 +84,7 @@ class HamiltonianDynamics:
         # num_samples*t_span[1] x n_bodies
         dsdt = torch.stack([self.dynamics_fn(None, s) for s in states])
 
-        field = HamiltonianField(meta=locals(), x=ys, dx=dsdt)
+        field = HamiltonianField(meta=locals(), x=states, dx=dsdt)
         return field
 
     @multidispatch

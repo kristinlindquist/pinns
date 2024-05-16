@@ -44,6 +44,9 @@ class HNN(torch.nn.Module):
         self.M = self.permutation_tensor(input_dim)  # Levi-Civita permutation tensor
         self.field_type = field_type
 
+        if self.assume_canonical_coords:
+            print("Warning: Assuming canonical coordinates")
+
     def forward(self, x):
         y = self.differentiable_model(x)
         F1, F2 = torch.tensor_split(y, 2, dim=-1)

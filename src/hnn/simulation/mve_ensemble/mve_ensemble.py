@@ -10,9 +10,9 @@ from hnn.types import DatasetArgs, HamiltonianField
 def get_initial_conditions(
     n_bodies: int,
     n_dims: int = 3,
-    width: int = 2,
-    height: int = 2,
-    depth: int = 2,
+    width: int = 8,
+    height: int = 8,
+    depth: int = 8,
     temp: float = 5.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -167,19 +167,25 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         self,
         n_bodies: int = 5,
         domain: tuple[int, int] = (0, 10),
-        t_span: tuple[int, int] = (0, 5),
+        t_span: tuple[int, int] = (0, 20),
     ):
         y0, masses = get_initial_conditions(n_bodies)
-        self.y0 = y0
 
-        potential_fn = partial(
+        self.masses = masses
+
+        # potential energy function
+        # - Lennard-Jones potential
+        # - Boundary potential
+        self.potential_fn = partial(
             total_potential_energy,
             calc_lennard_jones_potential,
             boundaries=domain,
         )
 
+        self.ok_potential_fn = partial(calc_lennard_jones_potential)
+
         _mve_ensemble_fun = partial(
-            mve_ensemble_fn, masses=masses, potential_fn=potential_fn
+            mve_ensemble_fn, masses=masses, potential_fn=self.potential_fn
         )
 
         super(MveEnsembleHamiltonianDynamics, self).__init__(
