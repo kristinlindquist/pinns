@@ -44,26 +44,27 @@ def get_initial_conditions(
     return state, masses
 
 
-def boundary_potential(positions: torch.Tensor, boundary: float, steepness: float):
-    """
-    A potential energy function that increases near a boundary
-    """
-    return steepness * torch.exp(-torch.abs(positions - boundary))
-
-
-def total_potential_energy(
-    natural_potential_fn: Callable,
+def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
-    steepness: float = 100.0,
+    steepness: float = 10.0,
+    width: float = 0.1,
 ):
     """
-    Total potential energy including boundary effects
+    A conservative boundary potential that fades out smoothly
+    NOTE: system energy is not conserved around this boundary
     """
+
+    def _boundary_potential(boundary):
+        distance = torch.abs(positions - boundary).reshape(-1)
+        mask = distance < width
+        distance[mask] = steepness * (1 - (distance[mask] / width) ** 2) ** 2
+        return distance
+
     boundary_effect = torch.sum(
-        torch.stack([boundary_potential(positions, b, steepness) for b in boundaries])
+        torch.stack([_boundary_potential(b) for b in boundaries])
     )
-    return natural_potential_fn(positions) + boundary_effect
+    return boundary_effect
 
 
 def calc_lennard_jones_potential(
@@ -176,11 +177,11 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         # potential energy function
         # - Lennard-Jones potential
         # - Boundary potential
-        self.potential_fn = partial(
-            total_potential_energy,
-            calc_lennard_jones_potential,
-            boundaries=domain,
-        )
+        def potential_fn(positions: torch.Tensor):
+            bc_pe = calc_boundary_potential(positions, boundaries=domain)
+            return calc_lennard_jones_potential(positions) + bc_pe
+
+        self.potential_fn = potential_fn
 
         self.ok_potential_fn = partial(calc_lennard_jones_potential)
 
