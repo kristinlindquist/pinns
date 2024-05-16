@@ -94,7 +94,6 @@ class HNN(torch.nn.Module):
         if self.assume_canonical_coords:
             M = torch.eye(n)  # diagonal matrix
             M = torch.cat([M[n // 2 :], -M[: n // 2]])
-            # M = torch.cat([M[n:], -M[:n]])
         else:
             """
             Constructs the Levi-Civita permutation tensor

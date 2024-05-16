@@ -5,7 +5,6 @@ from torchdiffeq import odeint
 import torch.autograd.functional as AF
 from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
-from scipy.interpolate import CubicSpline
 
 
 from hnn.types import (
@@ -18,12 +17,41 @@ from hnn.types import (
 from hnn.utils import get_timepoints
 
 
+def smooth_bounce(
+    position: float,
+    boundaries: tuple[float, float],
+    width: float = 0.001,
+):
+    """
+    Calculate the velocity change as a smooth function that simulates bouncing.
+
+    Args:
+        position (float): The position of the ball.
+        boundaries (tuple[float, float]): The position of the wall.
+        width (float): The distance over which the effect of the boundary is smoothed.
+
+    Returns:
+        float: velocity adjustment
+
+    TODO:
+        - >1 bounce within repulsion range?
+    """
+    left_effect = torch.tanh((position - boundaries[0]) / width)
+    right_effect = torch.tanh((boundaries[1] - position) / width)
+    return left_effect * right_effect
+
+
 class HamiltonianDynamics:
     """
     Hamiltonian dynamics class
     """
 
-    def __init__(self, function: HamiltonianFunction, dimensions: tuple[int, int]):
+    def __init__(
+        self,
+        function: HamiltonianFunction,
+        dimensions: tuple[int, int],
+        boundary_width: float = 0.01,
+    ):
         """
         Initialize the class
 
@@ -32,25 +60,20 @@ class HamiltonianDynamics:
         """
         self.function = function
         self.dimensions = dimensions
-
-        self.boundaries = (dimensions[0] + 0.1, dimensions[1] - 0.1)
-        self.splines = {
-            "x": CubicSpline(self.boundaries, dimensions),
-            "y": CubicSpline(self.boundaries, dimensions),
-            "z": CubicSpline(self.boundaries, dimensions),
-        }
+        self.boundaries = (
+            dimensions[0] + boundary_width,
+            dimensions[1] - boundary_width,
+        )
+        self.boundary_width = boundary_width
 
     def update_acceleration(self, position, acceleration: float, dimension: str):
         """
         Adjusts acceleration based on the position within the transition zone.
         """
-        if position < self.boundaries[0]:
-            return acceleration  # No adjustment
-        elif self.boundaries[0] <= position <= self.boundaries[1]:
-            # Adjust acceleration by multiplying initial acceleration by the spline output
-            return acceleration * self.splines[dimension](position)
-        else:
-            return 0  # No acceleration beyond the boundary
+        return (
+            smooth_bounce(position, self.dimensions, self.boundary_width * 0.1)
+            * acceleration
+        )
 
     def adjust_jacobian_for_boundaries(self, jacobian, pos):
         """
@@ -78,13 +101,12 @@ class HamiltonianDynamics:
 
         bc_d_state = self.adjust_jacobian_for_boundaries(
             d_state,
-            d_state[:, 0, :],
+            state[:, 0, :],
         )
 
         drdt, dvdt = [v.squeeze() for v in torch.split(bc_d_state, 1, dim=1)]
         # return the Hamiltonian update: dvdt = -dHdr; drdt = dHdv
         S = torch.stack([dvdt, -drdt], dim=1)
-        print(S)
 
         return S
 
@@ -173,7 +195,6 @@ class HamiltonianDynamics:
         v += torch.randn(*v.shape) * noise_std  # add noise
 
         dsdt = torch.stack([self.dynamics_fn(None, s) for s in ivp])
-        print("DSDT", dsdt.shape, torch.split(dsdt, 1, dim=2)[0].shape)
         # -> num_samples*t_span[1] x n_bodies x num_dim
         drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 

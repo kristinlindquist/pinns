@@ -9,9 +9,9 @@ from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
 def get_initial_conditions(
     n_bodies: int,
     n_dims: int = 3,
-    width: int = 5,
-    height: int = 5,
-    depth: int = 5,
+    width: int = 2,
+    height: int = 2,
+    depth: int = 2,
     temp: float = 5.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -146,11 +146,11 @@ def get_mve_ensemble_fn(masses: torch.Tensor, potential_fn):
     return _mve_ensemble_fn
 
 
-DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10)}
+DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 25)}
 
 
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
-    def __init__(self, n_bodies: int = 5, dimensions: tuple[int, int] = (0, 50)):
+    def __init__(self, n_bodies: int = 5, dimensions: tuple[int, int] = (0, 10)):
         y0, masses = get_initial_conditions(n_bodies)
         self.y0 = y0
         mve_ensemble_fn = get_mve_ensemble_fn(
