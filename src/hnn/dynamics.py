@@ -61,12 +61,9 @@ class HamiltonianDynamics:
 
         # n_bodies x 2 x num_dim
         if model is not None:
-            d_ps_coords = (
-                # TODO: hacky
-                model.time_derivative(ps_coords.unsqueeze(0).unsqueeze(0))
-                .squeeze()
-                .squeeze()
-            )
+            # TODO: hacky
+            fd_ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
+            d_ps_coords = model.time_derivative(fd_ps_coords).squeeze().squeeze()
         else:
             d_ps_coords = AF.jacobian(function, ps_coords)
 

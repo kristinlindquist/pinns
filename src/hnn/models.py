@@ -57,12 +57,7 @@ class HNN(torch.nn.Module):
         F1, F2 = torch.split(y, 1, dim=-2)  # split r & v
         return F1, F2
 
-    def time_derivative(
-        self,
-        x,
-        t=None,
-        separate_fields: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def time_derivative(self, x, t=None) -> torch.Tensor:
         """
         Neural Hamiltonian-style vector field
         """
@@ -102,9 +97,6 @@ class HNN(torch.nn.Module):
             solenoidal_field = torch.einsum("ijkl,ijkm->ijkm", M_tensor, dF2).squeeze(
                 -1
             )
-
-        if separate_fields:
-            return [conservative_field, solenoidal_field]
 
         return conservative_field + solenoidal_field
 
