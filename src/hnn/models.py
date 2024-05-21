@@ -22,7 +22,7 @@ class MLP(torch.nn.Module):
             self.linear3,
         )
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         return self.module(x)
 
 
@@ -45,16 +45,21 @@ class HNN(torch.nn.Module):
         self.field_type = field_type
 
         if self.assume_canonical_coords:
-            print("Warning: Assuming canonical coordinates")
+            print(
+                "Warning: assume_canonical_coords is True, which probably won't work."
+            )
 
-    def forward(self, x):
-        y = self.differentiable_model(x)
-        F1, F2 = torch.tensor_split(y, 2, dim=-1)
-        return F1.squeeze(-1), F2.squeeze(-1)
+    def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
+        # batch_size, (timescale*t_span[1]) x n_bodies x len([r, v]) x num_dim
+        # -> batch_size, (timescale*t_span[1]) x n_bodies x (len([r, v]) * num_dim)
+        _x = x.reshape(*x.shape[0:3], -1)
+        y = self.differentiable_model(_x).reshape(*x.shape)
+        F1, F2 = torch.split(y, 1, dim=-2)  # split r & v
+        return F1, F2
 
     def time_derivative(self, x, t=None, separate_fields=False):
         """
-        NEURAL HAMILTONIAN-STLE VECTOR FIELD
+        Neural Hamiltonian-style vector field
         """
         # batch_size, (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
         batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
@@ -68,7 +73,7 @@ class HNN(torch.nn.Module):
             # gradients for conservative field
             dF1 = torch.autograd.grad(F1.sum(), x, create_graph=True)[0]
             eye_tensor = (
-                torch.eye(dim)
+                torch.eye(coord_dim, dim)
                 .to(dF1.device)
                 .repeat(batch_size, timepoints, n_bodies, 1, 1)
             )
@@ -80,6 +85,7 @@ class HNN(torch.nn.Module):
         if self.field_type != "conservative":
             # gradients for solenoidal field
             dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
+            # TODO: shape is probably wrong
             M_tensor = (
                 self.M.t().to(dF2.device).repeat(batch_size, timepoints, n_bodies, 1, 1)
             )

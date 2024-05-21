@@ -13,31 +13,18 @@ def get_default_y0(radius: float = 1.3) -> torch.Tensor:
     return y0
 
 
-DEFAULT_TRAJECTORY_ARGS = {"t_span": (0, 10)}
-DEFAULT_ODE_ARGS = {"y0": get_default_y0()}
-
-
-def pendulum_fn(coords: torch.Tensor) -> torch.Tensor:
+def pendulum_fn(ps_coords: torch.Tensor) -> torch.Tensor:
     """
     Pendulum Hamiltonian
     """
-    q, p = torch.tensor_split(coords, 2)
-    H = 3 * (1 - torch.cos(q)) + p**2
+    r, v = torch.tensor_split(ps_coords, 2)
+    H = 3 * (1 - torch.cos(r)) + v**2
     return H
 
 
 class PendulumHamiltonianDynamics(HamiltonianDynamics):
     def __init__(self):
-        super(PendulumHamiltonianDynamics, self).__init__(pendulum_fn)
-
-    @overload
-    @HamiltonianDynamics.get_dataset.register
-    def _(self, args: dict, trajectory_args: dict):
-        traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **args})
-        return self.get_dataset(DatasetArgs(**args), traj_args, DEFAULT_ODE_ARGS)
-
-    @overload
-    @HamiltonianDynamics.get_trajectory.register
-    def _(self, args: dict, ode_args: dict = {}) -> HamiltonianField:
-        traj_args = TrajectoryArgs(**{**DEFAULT_TRAJECTORY_ARGS, **args})
-        return self.get_trajectory(traj_args, {**DEFAULT_ODE_ARGS, **ode_args})
+        y0 = get_default_y0()
+        super(PendulumHamiltonianDynamics, self).__init__(
+            pendulum_fn, y0=y0, t_span=(0, 10)
+        )

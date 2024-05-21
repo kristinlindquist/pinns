@@ -41,16 +41,20 @@ class HamiltonianDynamics:
         self.y0 = y0
         self.t_span = t_span
 
-    def dynamics_fn(self, t: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
+    def dynamics_fn(self, t: torch.Tensor, ps_coords: torch.Tensor) -> torch.Tensor:
         """
         Hamiltonian dynamics function
 
         Finds the Jacobian of the Hamiltonian function
+
+        Args:
+            t: Time
+            ps_coords: phase space coordinates
         """
         # n_bodies x 2 x num_dim
-        d_state = AF.jacobian(self.function, state)
+        d_ps_coords = AF.jacobian(self.function, ps_coords)
 
-        drdt, dvdt = [v.squeeze() for v in torch.split(d_state, 1, dim=1)]
+        drdt, dvdt = [v.squeeze() for v in torch.split(d_ps_coords, 1, dim=1)]
         # dvdt = -dHdr; drdt = dHdv
         S = torch.stack([dvdt, -drdt], dim=1)
 
@@ -79,12 +83,12 @@ class HamiltonianDynamics:
             torch.linspace(ymin, ymax, gridsize),
             indexing="xy",
         )
-        states = torch.stack([b.flatten(), a.flatten()], dim=1)
+        ps_coords = torch.stack([b.flatten(), a.flatten()], dim=1)
 
         # num_samples*t_span[1] x n_bodies
-        dsdt = torch.stack([self.dynamics_fn(None, s) for s in states])
+        dsdt = torch.stack([self.dynamics_fn(None, c) for c in ps_coords])
 
-        field = HamiltonianField(meta=locals(), x=states, dx=dsdt)
+        field = HamiltonianField(meta=locals(), x=ps_coords, dx=dsdt)
         return field
 
     @multidispatch

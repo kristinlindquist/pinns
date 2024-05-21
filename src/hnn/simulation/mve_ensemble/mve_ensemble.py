@@ -6,10 +6,12 @@ from functools import partial
 from hnn.dynamics import HamiltonianDynamics
 from hnn.types import DatasetArgs, HamiltonianField
 
+NUM_DIMS = 3
+
 
 def get_initial_conditions(
     n_bodies: int,
-    n_dims: int = 3,
+    n_dims: int,
     width: int = 8,
     height: int = 8,
     depth: int = 8,
@@ -39,16 +41,16 @@ def get_initial_conditions(
     total_momentum = v.sum(0)
     v -= total_momentum / n_bodies
 
-    state = torch.stack([r, v], dim=1)  # n_bodies x 2 x n_dims
+    ps_coords = torch.stack([r, v], dim=1)  # n_bodies x 2 x n_dims
 
-    return state, masses
+    return ps_coords, masses
 
 
 def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
     steepness: float = 10.0,
-    width: float = 0.1,
+    width: float = 0.15,
 ):
     """
     A conservative boundary potential that fades out smoothly
@@ -133,7 +135,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
 
 def mve_ensemble_fn(
-    state: torch.Tensor,
+    ps_coords: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
 ) -> torch.Tensor:
@@ -141,7 +143,7 @@ def mve_ensemble_fn(
     Hamiltonian for a generalized MVE ensemble.
 
     Args:
-        state (torch.Tensor): State (positions and velocities) (n_bodies x 2 x n_dims)
+        ps_coords (torch.Tensor): Phase space coordinates (n_bodies x 2 x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
 
@@ -149,7 +151,7 @@ def mve_ensemble_fn(
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
     # Split coordinates into positions and momentum (num_particles x num_dims)
-    r, v = [s.squeeze() for s in torch.split(state, 1, dim=1)]
+    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
 
     # Compute kinetic energy
     kinetic_energy = calc_kinetic_energy(v, masses)
@@ -168,10 +170,10 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         self,
         n_bodies: int = 5,
         domain: tuple[int, int] = (0, 10),
-        t_span: tuple[int, int] = (0, 20),
+        t_span: tuple[int, int] = (0, 4),  # 20
     ):
-        y0, masses = get_initial_conditions(n_bodies)
-
+        self.num_dims = NUM_DIMS
+        y0, masses = get_initial_conditions(n_bodies, self.num_dims)
         self.masses = masses
 
         # potential energy function
