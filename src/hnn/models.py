@@ -1,3 +1,4 @@
+from typing import Literal
 import torch
 import torch.autograd.functional as AF
 
@@ -35,7 +36,7 @@ class HNN(torch.nn.Module):
         self,
         input_dim: int,
         differentiable_model,
-        field_type: str = "solenoidal",
+        field_type: Literal["conservative", "solenoidal", "both"] = "solenoidal",
         assume_canonical_coords: bool = False,
     ):
         super(HNN, self).__init__()
@@ -50,17 +51,26 @@ class HNN(torch.nn.Module):
             )
 
     def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
-        # batch_size, (timescale*t_span[1]) x n_bodies x len([r, v]) x num_dim
-        # -> batch_size, (timescale*t_span[1]) x n_bodies x (len([r, v]) * num_dim)
+        # batch_size, (timescale*t_span[1]) x n_bodies x (len([r, v]) * num_dim)
         _x = x.reshape(*x.shape[0:3], -1)
         y = self.differentiable_model(_x).reshape(*x.shape)
         F1, F2 = torch.split(y, 1, dim=-2)  # split r & v
         return F1, F2
 
-    def time_derivative(self, x, t=None, separate_fields=False):
+    def time_derivative(
+        self,
+        x,
+        t=None,
+        separate_fields: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """
         Neural Hamiltonian-style vector field
         """
+        if len(x.shape) != 5:
+            raise ValueError(
+                "Input tensor must be of shape (batch_size, timepoints, n_bodies, coord_dim, dim)"
+            )
+
         # batch_size, (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
         batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
         F1, F2 = self.forward(x)
@@ -69,7 +79,7 @@ class HNN(torch.nn.Module):
         conservative_field = torch.zeros_like(x)
         solenoidal_field = torch.zeros_like(x)
 
-        if self.field_type != "solenoidal":
+        if self.field_type in ["both", "convserative"]:
             # gradients for conservative field
             dF1 = torch.autograd.grad(F1.sum(), x, create_graph=True)[0]
             eye_tensor = (
@@ -82,7 +92,7 @@ class HNN(torch.nn.Module):
                 "ijklm,ijkln->ijkln", eye_tensor, dF1
             ).squeeze(-1)
 
-        if self.field_type != "conservative":
+        if self.field_type in ["both", "solenoidal"]:
             # gradients for solenoidal field
             dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
             # TODO: shape is probably wrong
@@ -98,7 +108,7 @@ class HNN(torch.nn.Module):
 
         return conservative_field + solenoidal_field
 
-    def permutation_tensor(self, n: int):
+    def permutation_tensor(self, n: int) -> torch.Tensor:
         M = None
         if self.assume_canonical_coords:
             M = torch.eye(n)  # diagonal matrix

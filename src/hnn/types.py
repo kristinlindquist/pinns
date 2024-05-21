@@ -13,9 +13,11 @@ class HamiltonianField(BaseModel):
 
 
 class TrajectoryArgs(BaseModel):
+    y0: torch.Tensor
     model_config = ConfigDict(arbitrary_types_allowed=True)
     timescale: int = 6
     noise_std: float = 0.0
+    dynamics_fn: Callable | None = None
 
 
 class FieldArgs(BaseModel):
@@ -27,5 +29,5 @@ class FieldArgs(BaseModel):
 
 
 class DatasetArgs(BaseModel):
-    num_samples: int = 10
+    num_samples: int = 30
     test_split: float = 0.7

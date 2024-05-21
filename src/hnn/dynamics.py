@@ -26,7 +26,6 @@ class HamiltonianDynamics:
         self,
         function: HamiltonianFunction,
         domain: tuple[int, int],
-        y0: torch.Tensor,
         t_span: tuple[int, int] = (0, 10),
     ):
         """
@@ -38,10 +37,14 @@ class HamiltonianDynamics:
         """
         self.function = function
         self.domain = domain
-        self.y0 = y0
         self.t_span = t_span
 
-    def dynamics_fn(self, t: torch.Tensor, ps_coords: torch.Tensor) -> torch.Tensor:
+    def dynamics_fn(
+        self,
+        t: torch.Tensor,
+        ps_coords: torch.Tensor,
+        model: torch.nn.Module | None = None,
+    ) -> torch.Tensor:
         """
         Hamiltonian dynamics function
 
@@ -49,10 +52,19 @@ class HamiltonianDynamics:
 
         Args:
             t: Time
-            ps_coords: phase space coordinates
+            ps_coords: phase space coordinates (n_bodies x 2 x num_dim)
+            model: model to use for time derivative
         """
         # n_bodies x 2 x num_dim
-        d_ps_coords = AF.jacobian(self.function, ps_coords)
+        if model is not None:
+            d_ps_coords = (
+                # TODO: hacky
+                model.time_derivative(ps_coords.unsqueeze(0).unsqueeze(0))
+                .squeeze()
+                .squeeze()
+            )
+        else:
+            d_ps_coords = AF.jacobian(self.function, ps_coords)
 
         drdt, dvdt = [v.squeeze() for v in torch.split(d_ps_coords, 1, dim=1)]
         # dvdt = -dHdr; drdt = dHdv
@@ -78,14 +90,14 @@ class HamiltonianDynamics:
         xmin, xmax, ymin, ymax, gridsize = args.dict().values()
 
         # meshgrid to get vector field
-        b, a = torch.meshgrid(
+        mesh = torch.meshgrid(
             torch.linspace(xmin, xmax, gridsize),
             torch.linspace(ymin, ymax, gridsize),
             indexing="xy",
         )
-        ps_coords = torch.stack([b.flatten(), a.flatten()], dim=1)
+        ps_coords = torch.stack([m.flatten() for m in mesh], dim=1)
 
-        # num_samples*t_span[1] x n_bodies
+        # -> n_bodies x 2 x num_dim
         dsdt = torch.stack([self.dynamics_fn(None, c) for c in ps_coords])
 
         field = HamiltonianField(meta=locals(), x=ps_coords, dx=dsdt)
@@ -104,66 +116,67 @@ class HamiltonianDynamics:
     @get_vector_field.register
     def _(self, model: torch.nn.Module, field_args: FieldArgs) -> torch.Tensor:
         field = self.get_field(field_args)
-
-        if field.x.dim() == 3:
-            field.x = field.x.unsqueeze(0)
-
         mesh_x = field.x.requires_grad_()
         mesh_dx = model.time_derivative(mesh_x)
 
         return mesh_dx.data.squeeze(0)
 
     @multidispatch
-    def get_trajectory(self, args, ode_args):
+    def get_trajectory(self, args):
         return NotImplemented
 
     @overload
     @get_trajectory.register
-    def _(self, args: dict = {}, ode_args: dict = {}):
-        return self.get_trajectory(TrajectoryArgs(**args), **ode_args)
+    def _(self, args: dict = {}):
+        return self.get_trajectory(TrajectoryArgs(**args))
 
     @overload
     @get_trajectory.register
-    def _(self, args: TrajectoryArgs, ode_args: dict = {}):
+    def _(
+        self, args: TrajectoryArgs
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get a trajectory
 
         Args:
+            args.y0: Initial conditions
             args.timescale: Timescale
             args.noise_std: Noise standard deviation
-            ode_args: Additional arguments
+            args.dynamics_fn: Dynamics function (otherwise self.dynamics_fn is used)
         """
-        timescale, noise_std = args.dict().values()
+        y0, timescale, noise_std = args.y0, args.timescale, args.noise_std
+
+        dynamics_fn = args.dynamics_fn or self.dynamics_fn
 
         t = get_timepoints(self.t_span, timescale)
-        ivp = odeint(self.dynamics_fn, t=t, rtol=1e-10, y0=self.y0, **ode_args)
+        ivp = odeint(dynamics_fn, t=t, rtol=1e-10, y0=y0)
 
-        # num_samples*t_span[1] x n_bodies x 2
+        # num_batches*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
         r += torch.randn(*r.shape) * noise_std  # add noise
         v += torch.randn(*v.shape) * noise_std  # add noise
 
-        dsdt = torch.stack([self.dynamics_fn(None, s) for s in ivp])
-        # -> num_samples*t_span[1] x n_bodies x num_dim
+        dsdt = torch.stack([dynamics_fn(None, s) for s in ivp])
+        # -> num_batches*t_span[1] x n_bodies x num_dim
         drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         return r, v, drdt, dvdt, t
 
     @multidispatch
-    def get_dataset(self, args, trajectory_args, ode_args):
+    def get_dataset(self, args, trajectory_args):
         return NotImplemented
 
     @overload
     @get_dataset.register
-    def _(self, args: dict = {}, trajectory_args: dict = {}, ode_args: dict = {}):
-        return self.get_dataset(
-            DatasetArgs(**args), TrajectoryArgs(**trajectory_args), ode_args
-        )
+    def _(self, args: dict = {}, trajectory_args: dict = {}):
+        return self.get_dataset(DatasetArgs(**args), TrajectoryArgs(**trajectory_args))
 
     @overload
     @get_dataset.register
     def _(
-        self, args: DatasetArgs, trajectory_args: TrajectoryArgs, ode_args: dict = {}
+        self,
+        args: DatasetArgs,
+        trajectory_args: TrajectoryArgs,
     ) -> dict:
         """
         Generate a dataset of trajectories
@@ -172,7 +185,6 @@ class HamiltonianDynamics:
         args.num_samples: Number of samples
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
-        ode_args: Additional arguments for the ODE solver
         """
 
         num_samples, test_split = args.dict().values()
@@ -180,7 +192,7 @@ class HamiltonianDynamics:
         torch.seed()
         xs, dxs = [], []
         for s in range(num_samples):
-            r, v, dr, dv, t = self.get_trajectory(trajectory_args, ode_args)
+            r, v, dr, dv, t = self.get_trajectory(trajectory_args)
 
             # (timescale*t_span[1]) x n_bodies x 2 x num_dim
             xs.append(torch.stack([r, v], dim=2).unsqueeze(dim=0))
@@ -188,7 +200,7 @@ class HamiltonianDynamics:
             # (timescale*t_span[1]) x n_bodies x 2 x num_dim
             dxs.append(torch.stack([dr, dv], dim=2).unsqueeze(dim=0))
 
-        # num_samples x (timescale*t_span[1]) x n_bodies x 2 x num_dim
+        # batch_size x (timescale*t_span[1]) x n_bodies x 2 x num_dim
         data = {
             "meta": locals(),
             "x": torch.cat(xs),

@@ -6,8 +6,6 @@ from functools import partial
 from hnn.dynamics import HamiltonianDynamics
 from hnn.types import DatasetArgs, HamiltonianField
 
-NUM_DIMS = 3
-
 
 def get_initial_conditions(
     n_bodies: int,
@@ -54,7 +52,7 @@ def calc_boundary_potential(
 ):
     """
     A conservative boundary potential that fades out smoothly
-    NOTE: system energy is not conserved around this boundary
+    NOTE: energy is not conserved around this boundary
     """
 
     def _boundary_potential(boundary):
@@ -136,7 +134,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
 def mve_ensemble_fn(
     ps_coords: torch.Tensor,
-    masses: torch.Tensor,
+    masses: torch.Tensor | None = None,
     potential_fn=calc_lennard_jones_potential,
 ) -> torch.Tensor:
     """
@@ -150,7 +148,11 @@ def mve_ensemble_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    # Split coordinates into positions and momentum (num_particles x num_dims)
+    # TODO!
+    if masses is None:
+        masses = torch.ones(ps_coords.shape[0])
+
+    # Split coordinates into positions and momentum  (-> n_bodies x num_dim)
     r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
 
     # Compute kinetic energy
@@ -168,14 +170,9 @@ def mve_ensemble_fn(
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
     def __init__(
         self,
-        n_bodies: int = 5,
         domain: tuple[int, int] = (0, 10),
-        t_span: tuple[int, int] = (0, 4),  # 20
+        t_span: tuple[int, int] = (0, 20),
     ):
-        self.num_dims = NUM_DIMS
-        y0, masses = get_initial_conditions(n_bodies, self.num_dims)
-        self.masses = masses
-
         # potential energy function
         # - Lennard-Jones potential
         # - Boundary potential
@@ -184,13 +181,10 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
             return calc_lennard_jones_potential(positions) + bc_pe
 
         self.potential_fn = potential_fn
+        self.potential_wo_bc_fun = partial(calc_lennard_jones_potential)
 
-        self.ok_potential_fn = partial(calc_lennard_jones_potential)
-
-        _mve_ensemble_fun = partial(
-            mve_ensemble_fn, masses=masses, potential_fn=self.potential_fn
-        )
+        _mve_ensemble_fun = partial(mve_ensemble_fn, potential_fn=self.potential_fn)
 
         super(MveEnsembleHamiltonianDynamics, self).__init__(
-            _mve_ensemble_fun, domain, t_span=t_span, y0=y0
+            _mve_ensemble_fun, domain, t_span=t_span
         )
