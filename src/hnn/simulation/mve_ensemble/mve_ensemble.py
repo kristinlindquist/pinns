@@ -4,7 +4,6 @@ import torch
 from functools import partial
 
 from hnn.dynamics import HamiltonianDynamics
-from hnn.types import DatasetArgs, HamiltonianField
 
 
 def get_initial_conditions(
@@ -118,7 +117,6 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
     # Ensure masses can broadcast correctly with velocities
     if len(velocities.shape) == 3:
-        # Adjust for timepoints: (n_bodies, 1) to (n_bodies, 1, 1)
         masses = masses.unsqueeze(1)
 
     kinetics = 0.5 * masses * velocities**2
@@ -134,7 +132,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
 def mve_ensemble_fn(
     ps_coords: torch.Tensor,
-    masses: torch.Tensor | None = None,
+    masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
 ) -> torch.Tensor:
     """
@@ -148,10 +146,6 @@ def mve_ensemble_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    # TODO!
-    if masses is None:
-        masses = torch.ones(ps_coords.shape[0])
-
     # Split coordinates into positions and momentum  (-> n_bodies x num_dim)
     r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
 
@@ -171,7 +165,7 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
     def __init__(
         self,
         domain: tuple[int, int] = (0, 10),
-        t_span: tuple[int, int] = (0, 20),
+        t_span: tuple[int, int] = (0, 4),  # 20
     ):
         # potential energy function
         # - Lennard-Jones potential
@@ -183,8 +177,10 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         self.potential_fn = potential_fn
         self.potential_wo_bc_fun = partial(calc_lennard_jones_potential)
 
-        _mve_ensemble_fun = partial(mve_ensemble_fn, potential_fn=self.potential_fn)
+        _get_function = lambda masses: partial(
+            mve_ensemble_fn, masses=masses, potential_fn=self.potential_fn
+        )
 
         super(MveEnsembleHamiltonianDynamics, self).__init__(
-            _mve_ensemble_fun, domain, t_span=t_span
+            _get_function, domain, t_span=t_span
         )

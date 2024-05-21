@@ -79,7 +79,7 @@ class HNN(torch.nn.Module):
         conservative_field = torch.zeros_like(x)
         solenoidal_field = torch.zeros_like(x)
 
-        if self.field_type in ["both", "convserative"]:
+        if self.field_type in ["both", "conservative"]:
             # gradients for conservative field
             dF1 = torch.autograd.grad(F1.sum(), x, create_graph=True)[0]
             eye_tensor = (

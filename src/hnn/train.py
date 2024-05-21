@@ -6,6 +6,9 @@ from hnn.utils import L2_loss
 
 
 def train(args, data: dict):
+    """
+    Training loop
+    """
     diff_model = MLP(args.input_dim, args.hidden_dim, args.input_dim)
     model = HNN(
         args.input_dim, differentiable_model=diff_model, field_type=args.field_type

@@ -5,29 +5,24 @@ from pydantic import BaseModel, ConfigDict
 HamiltonianFunction = Callable[[torch.Tensor], torch.Tensor]
 
 
-class HamiltonianField(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    meta: dict
-    x: torch.Tensor
-    dx: torch.Tensor
-
-
 class TrajectoryArgs(BaseModel):
     y0: torch.Tensor
+    masses: torch.Tensor
     model_config = ConfigDict(arbitrary_types_allowed=True)
     timescale: int = 6
     noise_std: float = 0.0
-    dynamics_fn: Callable | None = None
-
-
-class FieldArgs(BaseModel):
-    xmin: float = -1.2
-    xmax: float = 1.2
-    ymin: float = -1.2
-    ymax: float = 1.2
-    gridsize: int = 20
+    model: torch.nn.Module | None = None
 
 
 class DatasetArgs(BaseModel):
-    num_samples: int = 30
+    num_samples: int = 25
     test_split: float = 0.7
+
+
+class Trajectory(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    r: torch.Tensor
+    v: torch.Tensor
+    dr: torch.Tensor
+    dv: torch.Tensor
+    t: torch.Tensor
