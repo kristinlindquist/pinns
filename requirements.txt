@@ -1,0 +1,5 @@
+matplotlib
+multimethod
+pydantic
+torch
+torchdiffeq
