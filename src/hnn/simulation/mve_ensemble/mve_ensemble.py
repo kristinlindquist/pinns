@@ -168,7 +168,7 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         # - Lennard-Jones potential
         # - Boundary potential
         def potential_fn(positions: torch.Tensor):
-            bc_pe = calc_boundary_potential(positions, boundaries=domain)
+            bc_pe = calc_boundary_potential(positions, boundaries=args.domain)
             return calc_lennard_jones_potential(positions) + bc_pe
 
         self.potential_fn = potential_fn
