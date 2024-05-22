@@ -53,7 +53,7 @@ class HNN(torch.nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # batch_size, (timescale*t_span[1]) x n_bodies x (len([r, v]) * num_dim)
+        # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
         _x = x.reshape(*x.shape[0:3], -1)
         y = self.differentiable_model(_x).reshape(*x.shape)
         scalar_potential, vector_potential = torch.split(y, 1, dim=-2)
@@ -63,7 +63,7 @@ class HNN(torch.nn.Module):
         """
         Neural Hamiltonian-style vector field
         """
-        # batch_size, (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
+        # batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
         batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
         scalar_potential, vector_potential = self.forward(x)
 

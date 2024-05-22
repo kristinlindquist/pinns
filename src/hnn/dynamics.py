@@ -53,14 +53,15 @@ class HamiltonianDynamics:
 
         Args:
             t: Time
-            ps_coords: phase space coordinates (n_bodies x 2 x num_dim)
+            ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
             model: model to use for time derivative
             function_args: additional arguments for the Hamiltonian function
         """
         function = self.get_function(**function_args)
 
-        # n_bodies x 2 x num_dim
+        # n_bodies x 2 x n_dims
         if model is not None:
+            # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             fd_ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
             d_ps_coords = model.time_derivative(fd_ps_coords).squeeze().squeeze()
         else:
@@ -90,17 +91,17 @@ class HamiltonianDynamics:
         Args:
             args.y0: Initial conditions
             args.masses: Masses
-            args.timescale: Timescale
+            args.time_scale: Time scale
             args.noise_std: Noise standard deviation
             args.model: Model to use for time derivative (optional)
         """
-        y0, timescale, noise_std = args.y0, args.timescale, args.noise_std
+        y0, time_scale, noise_std = args.y0, args.time_scale, args.noise_std
 
         dynamics_fn = partial(
             self.dynamics_fn, model=args.model, function_args={"masses": args.masses}
         )
 
-        t = get_timepoints(self.t_span, timescale)
+        t = get_timepoints(self.t_span, time_scale)
         ivp = odeint(dynamics_fn, t=t, rtol=1e-10, y0=y0)
 
         # num_batches*t_span[1] x n_bodies x 2
@@ -109,7 +110,7 @@ class HamiltonianDynamics:
         v += torch.randn(*v.shape) * noise_std  # add noise
 
         dsdt = torch.stack([dynamics_fn(None, s) for s in ivp])
-        # -> num_batches*t_span[1] x n_bodies x num_dim
+        # -> num_batches*t_span[1] x n_bodies x n_dims
         drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         return Trajectory(r=r, v=v, dr=drdt, dv=dvdt, t=t)
@@ -146,13 +147,13 @@ class HamiltonianDynamics:
         for s in range(num_samples):
             r, v, dr, dv, t = self.get_trajectory(trajectory_args).dict().values()
 
-            # (timescale*t_span[1]) x n_bodies x 2 x num_dim
+            # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             xs.append(torch.stack([r, v], dim=2).unsqueeze(dim=0))
 
-            # (timescale*t_span[1]) x n_bodies x 2 x num_dim
+            # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             dxs.append(torch.stack([dr, dv], dim=2).unsqueeze(dim=0))
 
-        # batch_size x (timescale*t_span[1]) x n_bodies x 2 x num_dim
+        # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
         data = {
             "meta": locals(),
             "x": torch.cat(xs),

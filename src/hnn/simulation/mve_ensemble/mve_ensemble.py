@@ -4,6 +4,7 @@ import torch
 from functools import partial
 
 from hnn.dynamics import HamiltonianDynamics
+from hnn.types import ModelArgs
 
 
 def get_initial_conditions(
@@ -51,7 +52,7 @@ def calc_boundary_potential(
 ):
     """
     A conservative boundary potential that fades out smoothly
-    NOTE: energy is not conserved around this boundary
+    NOTE: energy is not perfectly conserved around this boundary
     """
 
     def _boundary_potential(boundary):
@@ -146,7 +147,7 @@ def mve_ensemble_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    # Split coordinates into positions and momentum  (-> n_bodies x num_dim)
+    # Split coordinates into positions and momentum  (-> n_bodies x n_dims)
     r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
 
     # Compute kinetic energy
@@ -162,11 +163,7 @@ def mve_ensemble_fn(
 
 
 class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
-    def __init__(
-        self,
-        domain: tuple[int, int] = (0, 10),
-        t_span: tuple[int, int] = (0, 50),
-    ):
+    def __init__(self, args: ModelArgs = ModelArgs()):
         # potential energy function
         # - Lennard-Jones potential
         # - Boundary potential
@@ -182,5 +179,5 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         )
 
         super(MveEnsembleHamiltonianDynamics, self).__init__(
-            _get_function, domain, t_span=t_span
+            _get_function, args.domain, t_span=args.t_span
         )
