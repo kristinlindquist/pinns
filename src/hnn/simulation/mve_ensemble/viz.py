@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from typing import Callable
+import torch
 
 
 def visualize_trajectory(positions, num_timepoints, domain=(0, 10)):
@@ -34,3 +36,21 @@ def visualize_trajectory(positions, num_timepoints, domain=(0, 10)):
 
     ani = FuncAnimation(fig, update, frames=num_timepoints, blit=True, repeat=False)
     return ani
+
+
+def plot_energy(
+    potential_energy: torch.Tensor,
+    kinetic_energy: torch.Tensor,
+    total_energy: torch.Tensor,
+    time: torch.Tensor,
+):
+    """
+    Plot the potential, kinetic, and total energy of the system
+    """
+    fig_e, ax_e = plt.subplots(figsize=[10, 4], dpi=100)
+    plt.title("Energy")
+    plt.xlabel("time")
+    plt.plot(time, potential_energy, label="potential")
+    plt.plot(time, kinetic_energy, label="kinetic")
+    plt.plot(time, total_energy, label="total")
+    plt.legend(fontsize=8)

@@ -175,7 +175,7 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
             return calc_lennard_jones_potential(positions) + bc_pe
 
         self.potential_fn = potential_fn
-        self.potential_wo_bc_fun = partial(calc_lennard_jones_potential)
+        self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
         _get_function = lambda masses: partial(
             mve_ensemble_fn, masses=masses, potential_fn=self.potential_fn

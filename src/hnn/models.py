@@ -37,32 +37,35 @@ class HNN(torch.nn.Module):
         self,
         input_dim: int,
         differentiable_model,
-        field_type: Literal["conservative", "solenoidal", "both"] = "solenoidal",
+        field_type: Literal["conservative", "solenoidal", "both"] = "both",
     ):
         super(HNN, self).__init__()
         self.differentiable_model = differentiable_model
         self.M = self.permutation_tensor()  # Levi-Civita permutation tensor
+        self.input_dim = input_dim
         self.field_type = field_type
 
-    def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
+        # a smooth, rapidly decaying 3d vector field can be decomposed into a conservative and solenoidal field
+        # https://en.wikipedia.org/wiki/Helmholtz_decomposition
+        if field_type != "both":
+            print(
+                f"Warning: a field_type of {field_type} might not capture the full dynamics of the system."
+            )
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, (timescale*t_span[1]) x n_bodies x (len([r, v]) * num_dim)
         _x = x.reshape(*x.shape[0:3], -1)
         y = self.differentiable_model(_x).reshape(*x.shape)
-        F1, F2 = torch.split(y, 1, dim=-2)  # split r & v
-        return F1, F2
+        scalar_potential, vector_potential = torch.split(y, 1, dim=-2)
+        return scalar_potential, vector_potential
 
-    def time_derivative(self, x, t=None) -> torch.Tensor:
+    def time_derivative(self, x: torch.Tensor, t=None) -> torch.Tensor:
         """
         Neural Hamiltonian-style vector field
         """
-        if len(x.shape) != 5:
-            raise ValueError(
-                "Input tensor must be of shape (batch_size, timepoints, n_bodies, coord_dim, dim)"
-            )
-
         # batch_size, (timescale*t_span[1]) x n_bodies x len([q, p]) x num_dim
         batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
-        F1, F2 = self.forward(x)
+        scalar_potential, vector_potential = self.forward(x)
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)
@@ -70,25 +73,23 @@ class HNN(torch.nn.Module):
 
         if self.field_type in ["both", "conservative"]:
             """
-            conservative: "vector fields representing forces of physical systems in which energy is conserved"
-                (line integral is path independent) https://en.wikipedia.org/wiki/Conservative_vector_field
+            conservative: models energy-conserving physical systems; irrotational (vanishing curl)
             """
-            dF1 = torch.autograd.grad(F1.sum(), x, create_graph=True)[0]
-            eye_tensor = torch.eye(coord_dim, dim).repeat(
-                batch_size, timepoints, n_bodies, 1, 1
-            )
-            conservative_field = torch.einsum("ijklm,ijkln->ijkln", eye_tensor, dF1)
+            d_scalar_potential = torch.autograd.grad(
+                scalar_potential.sum(), x, create_graph=True
+            )[0]
+            conservative_field = d_scalar_potential
 
         if self.field_type in ["both", "solenoidal"]:
             """
-            solenoidal: "a vector field v with divergence zero at all points in the field"
-                (aka with no sources or sinks) https://en.wikipedia.org/wiki/Solenoidal_vector_field
+            solenoidal: a vector field with zero divergence (aka no sources or sinks)
             """
-            # gradients for solenoidal field
-            dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
-
-            # curl of dF2 -> solenoidal field
-            solenoidal_field = torch.einsum("ijk,...lj->...li", self.M, dF2)
+            d_vector_potential = torch.autograd.grad(
+                vector_potential.sum(), x, create_graph=True
+            )[0]
+            solenoidal_field = torch.einsum(
+                "ijk,...lj->...li", self.M, d_vector_potential
+            )
 
         return conservative_field + solenoidal_field
 
