@@ -29,15 +29,18 @@ def train(args, data: dict):
         # train
         model.train()
         optim.zero_grad()
+        ixs = torch.randperm(x.shape[0])[: args.batch_size]
         dxdt_hat = model.time_derivative(x)
-        loss = L2_loss(dxdt, dxdt_hat)
+        dxdt_hat = model.time_derivative(x[ixs])
+        loss = L2_loss(dxdt[ixs], dxdt_hat)
         loss.backward()
         optim.step()
 
         # test
         model.eval()
-        test_dxdt_hat = model.time_derivative(test_x)
-        test_loss = L2_loss(test_dxdt, test_dxdt_hat)
+        test_ixs = torch.randperm(test_x.shape[0])[: args.batch_size]
+        test_dxdt_hat = model.time_derivative(test_x[test_ixs])
+        test_loss = L2_loss(test_dxdt[test_ixs], test_dxdt_hat)
 
         # log
         stats["train_loss"].append(loss.item())

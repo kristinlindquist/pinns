@@ -165,7 +165,7 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
     def __init__(
         self,
         domain: tuple[int, int] = (0, 10),
-        t_span: tuple[int, int] = (0, 20),
+        t_span: tuple[int, int] = (0, 50),
     ):
         # potential energy function
         # - Lennard-Jones potential

@@ -1,6 +1,7 @@
 from typing import Literal
 import torch
 import torch.autograd.functional as AF
+from itertools import permutations
 
 
 class MLP(torch.nn.Module):
@@ -37,18 +38,11 @@ class HNN(torch.nn.Module):
         input_dim: int,
         differentiable_model,
         field_type: Literal["conservative", "solenoidal", "both"] = "solenoidal",
-        assume_canonical_coords: bool = False,
     ):
         super(HNN, self).__init__()
         self.differentiable_model = differentiable_model
-        self.assume_canonical_coords = assume_canonical_coords
-        self.M = self.permutation_tensor(input_dim)  # Levi-Civita permutation tensor
+        self.M = self.permutation_tensor()  # Levi-Civita permutation tensor
         self.field_type = field_type
-
-        if self.assume_canonical_coords:
-            print(
-                "Warning: assume_canonical_coords is True, which probably won't work."
-            )
 
     def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, (timescale*t_span[1]) x n_bodies x (len([r, v]) * num_dim)
@@ -75,46 +69,38 @@ class HNN(torch.nn.Module):
         solenoidal_field = torch.zeros_like(x)
 
         if self.field_type in ["both", "conservative"]:
-            # gradients for conservative field
+            """
+            conservative: "vector fields representing forces of physical systems in which energy is conserved"
+                (line integral is path independent) https://en.wikipedia.org/wiki/Conservative_vector_field
+            """
             dF1 = torch.autograd.grad(F1.sum(), x, create_graph=True)[0]
-            eye_tensor = (
-                torch.eye(coord_dim, dim)
-                .to(dF1.device)
-                .repeat(batch_size, timepoints, n_bodies, 1, 1)
+            eye_tensor = torch.eye(coord_dim, dim).repeat(
+                batch_size, timepoints, n_bodies, 1, 1
             )
-
-            conservative_field = torch.einsum(
-                "ijklm,ijkln->ijkln", eye_tensor, dF1
-            ).squeeze(-1)
+            conservative_field = torch.einsum("ijklm,ijkln->ijkln", eye_tensor, dF1)
 
         if self.field_type in ["both", "solenoidal"]:
+            """
+            solenoidal: "a vector field v with divergence zero at all points in the field"
+                (aka with no sources or sinks) https://en.wikipedia.org/wiki/Solenoidal_vector_field
+            """
             # gradients for solenoidal field
             dF2 = torch.autograd.grad(F2.sum(), x, create_graph=True)[0]
-            # TODO: shape is probably wrong
-            M_tensor = (
-                self.M.t().to(dF2.device).repeat(batch_size, timepoints, n_bodies, 1, 1)
-            )
-            solenoidal_field = torch.einsum("ijkl,ijkm->ijkm", M_tensor, dF2).squeeze(
-                -1
-            )
+
+            # curl of dF2 -> solenoidal field
+            solenoidal_field = torch.einsum("ijk,...lj->...li", self.M, dF2)
 
         return conservative_field + solenoidal_field
 
-    def permutation_tensor(self, n: int) -> torch.Tensor:
-        M = None
-        if self.assume_canonical_coords:
-            M = torch.eye(n)  # diagonal matrix
-            M = torch.cat([M[n // 2 :], -M[: n // 2]])
-        else:
-            """
-            Constructs the Levi-Civita permutation tensor
-            """
-            M = torch.ones(n, n)  # matrix of ones
-            M *= 1 - torch.eye(n)  # clear diagonals
-            M[::2] *= -1  # pattern of signs
-            M[:, ::2] *= -1
-
-            for i in range(n):  # make asymmetric
-                for j in range(i + 1, n):
-                    M[i, j] *= -1
+    def permutation_tensor(self) -> torch.Tensor:
+        """
+        Constructs the Levi-Civita permutation tensor for 3 dimensions.
+        """
+        M = torch.zeros((3, 3, 3))
+        M[0, 1, 2] = 1
+        M[1, 2, 0] = 1
+        M[2, 0, 1] = 1
+        M[2, 1, 0] = -1
+        M[1, 0, 2] = -1
+        M[0, 2, 1] = -1
         return M
