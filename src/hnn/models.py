@@ -13,7 +13,7 @@ class MLP(torch.nn.Module):
         super(MLP, self).__init__()
         self.linear1 = torch.nn.Linear(input_dim, hidden_dim)
         self.linear2 = torch.nn.Linear(hidden_dim, hidden_dim)
-        self.linear3 = torch.nn.Linear(hidden_dim, output_dim, bias=None)
+        self.linear3 = torch.nn.Linear(hidden_dim, output_dim)
         self.nonlinearity = torch.nn.Tanh()
 
         self.module = torch.nn.Sequential(
@@ -36,7 +36,7 @@ class HNN(torch.nn.Module):
     def __init__(
         self,
         input_dim: int,
-        differentiable_model,
+        differentiable_model: torch.nn.Module,
         field_type: Literal["conservative", "solenoidal", "both"] = "both",
     ):
         super(HNN, self).__init__()
@@ -54,7 +54,7 @@ class HNN(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
-        _x = x.reshape(*x.shape[0:3], -1)
+        _x = x.reshape(*x.shape[0:2], -1)
         y = self.differentiable_model(_x).reshape(*x.shape)
         scalar_potential, vector_potential = torch.split(y, 1, dim=-2)
         return scalar_potential, vector_potential

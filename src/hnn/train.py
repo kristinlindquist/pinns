@@ -12,10 +12,11 @@ def train(args: dict, data: dict):
     """
     torch.set_default_device(args.device)
 
-    diff_model = MLP(args.input_dim, args.hidden_dim, args.input_dim)
-    model = HNN(
-        args.input_dim, differentiable_model=diff_model, field_type=args.field_type
-    )
+    # input_dim = n_bodies * n_dims * len([r, v])
+    input_dim = args.n_bodies * args.n_dims * 2
+
+    diff_model = MLP(input_dim, args.hidden_dim, input_dim)
+    model = HNN(input_dim, differentiable_model=diff_model, field_type=args.field_type)
     optim = torch.optim.Adam(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )

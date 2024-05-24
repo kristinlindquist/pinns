@@ -62,8 +62,8 @@ class HamiltonianDynamics:
         # n_bodies x 2 x n_dims
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            fd_ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
-            d_ps_coords = model.time_derivative(fd_ps_coords).squeeze().squeeze()
+            _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
+            d_ps_coords = model.time_derivative(_ps_coords).squeeze().squeeze()
         else:
             d_ps_coords = AF.jacobian(function, ps_coords)
 
@@ -102,7 +102,14 @@ class HamiltonianDynamics:
         )
 
         t = get_timepoints(self.t_span, time_scale)
-        ivp = odeint(dynamics_fn, t=t, rtol=1e-10, y0=y0)
+        ivp = odeint(
+            dynamics_fn,
+            t=t,
+            rtol=1e-10,
+            y0=y0,
+            method="dopri5",
+            options={"dtype": torch.float32, "max_num_steps": 1000},
+        )
 
         # num_batches*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
@@ -143,9 +150,12 @@ class HamiltonianDynamics:
         num_samples, test_split = args.dict().values()
 
         torch.seed()
-        xs, dxs = [], []
+        xs, dxs, time = [], [], None
         for s in range(num_samples):
             r, v, dr, dv, t = self.get_trajectory(trajectory_args).dict().values()
+
+            if time is None:
+                time = t
 
             # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             xs.append(torch.stack([r, v], dim=2).unsqueeze(dim=0))
@@ -154,15 +164,11 @@ class HamiltonianDynamics:
             dxs.append(torch.stack([dr, dv], dim=2).unsqueeze(dim=0))
 
         # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-        data = {
-            "meta": locals(),
-            "x": torch.cat(xs),
-            "dx": torch.cat(dxs),
-        }
+        data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}
 
         # make a train/test split
         split_ix = int(len(data["x"]) * test_split)
-        split_data = {}
+        split_data = {"time": time}
         for k in ["x", "dx"]:
             split_data[k], split_data["test_" + k] = (
                 data[k][:split_ix],
