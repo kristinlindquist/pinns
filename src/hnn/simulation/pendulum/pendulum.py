@@ -3,7 +3,7 @@ from multimethod import multidispatch
 import torch
 
 
-from hnn.dynamics import HamiltonianDynamics
+from hnn.dynamics import Mechanics
 from hnn.types import DatasetArgs, TrajectoryArgs, HamiltonianField
 
 
@@ -22,9 +22,7 @@ def pendulum_fn(ps_coords: torch.Tensor) -> torch.Tensor:
     return H
 
 
-class PendulumHamiltonianDynamics(HamiltonianDynamics):
+class PendulumMechanics(Mechanics):
     def __init__(self):
         y0 = get_default_y0()
-        super(PendulumHamiltonianDynamics, self).__init__(
-            pendulum_fn, y0=y0, t_span=(0, 10)
-        )
+        super(PendulumMechanics, self).__init__(pendulum_fn, y0=y0, t_span=(0, 10))

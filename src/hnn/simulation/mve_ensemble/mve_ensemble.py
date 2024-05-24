@@ -3,7 +3,7 @@ from multimethod import multidispatch
 import torch
 from functools import partial
 
-from hnn.dynamics import HamiltonianDynamics
+from hnn.mechanics import Mechanics
 from hnn.types import ModelArgs
 
 
@@ -132,9 +132,11 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
 
 def mve_ensemble_fn(
-    ps_coords: torch.Tensor,
+    r: torch.Tensor,
+    v: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
+    use_lagrangian: bool = False,
 ) -> torch.Tensor:
     """
     Hamiltonian for a generalized MVE ensemble.
@@ -143,12 +145,13 @@ def mve_ensemble_fn(
         ps_coords (torch.Tensor): Phase space coordinates (n_bodies x 2 x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
+        use_lagrangian (bool): If True, return the Lagrangian instead of the Hamiltonian
 
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
     # Split coordinates into positions and momentum  (-> n_bodies x n_dims)
-    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
+    # r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
 
     # Compute kinetic energy
     kinetic_energy = calc_kinetic_energy(v, masses)
@@ -156,13 +159,15 @@ def mve_ensemble_fn(
     # Compute potential energy
     potential_energy = potential_fn(r)
 
-    # Hamiltonian (Total Energy)
-    H = kinetic_energy + potential_energy
+    if use_lagrangian:
+        # Lagrangian (Total Energy)
+        return kinetic_energy - potential_energy
+    else:
+        # Hamiltonian (Total Energy)
+        return kinetic_energy + potential_energy
 
-    return H
 
-
-class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
+class MveEnsembleMechanics(Mechanics):
     def __init__(self, args: ModelArgs = ModelArgs()):
         # potential energy function
         # - Lennard-Jones potential
@@ -175,9 +180,15 @@ class MveEnsembleHamiltonianDynamics(HamiltonianDynamics):
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
         _get_function = lambda masses: partial(
-            mve_ensemble_fn, masses=masses, potential_fn=self.potential_fn
+            mve_ensemble_fn,
+            masses=masses,
+            potential_fn=self.potential_fn,
+            use_lagrangian=args.use_lagrangian,
         )
 
-        super(MveEnsembleHamiltonianDynamics, self).__init__(
-            _get_function, args.domain, t_span=args.t_span
+        super(MveEnsembleMechanics, self).__init__(
+            _get_function,
+            args.domain,
+            t_span=args.t_span,
+            use_lagrangian=args.use_lagrangian,
         )

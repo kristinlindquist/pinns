@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
 
 
+from hnn.mechanics.lagrangian import lagrangian_dynamics_fn
 from hnn.types import (
     HamiltonianFunction,
     TrajectoryArgs,
@@ -16,9 +17,9 @@ from hnn.types import (
 from hnn.utils import get_timepoints
 
 
-class HamiltonianDynamics:
+class Mechanics:
     """
-    Hamiltonian dynamics class
+    Classical mechanics system class
     """
 
     def __init__(
@@ -26,6 +27,7 @@ class HamiltonianDynamics:
         get_function: Callable[[Any], HamiltonianFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
+        use_lagrangian: bool = False,
     ):
         """
         Initialize the class
@@ -38,6 +40,7 @@ class HamiltonianDynamics:
         self.get_function = get_function
         self.domain = domain
         self.t_span = t_span
+        self.use_lagrangian = use_lagrangian
 
     def dynamics_fn(
         self,
@@ -57,14 +60,19 @@ class HamiltonianDynamics:
             model: model to use for time derivative
             function_args: additional arguments for the Hamiltonian function
         """
+        function = self.get_function(**function_args)
+        r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
+
+        if self.use_lagrangian:
+            return lagrangian_dynamics_fn(function, t, r, v)
+
         # n_bodies x 2 x n_dims
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
             d_ps_coords = model.time_derivative(_ps_coords).squeeze().squeeze()
         else:
-            function = self.get_function(**function_args)
-            d_ps_coords = AF.jacobian(function, ps_coords)
+            d_ps_coords = AF.jacobian(function, r, v)
 
         drdt, dvdt = [v.squeeze() for v in torch.split(d_ps_coords, 1, dim=1)]
         # dvdt = -dHdr; drdt = dHdv
@@ -95,9 +103,10 @@ class HamiltonianDynamics:
             args.model: Model to use for time derivative (optional)
         """
         y0, time_scale, noise_std = args.y0, args.time_scale, args.noise_std
-
         dynamics_fn = partial(
-            self.dynamics_fn, model=args.model, function_args={"masses": args.masses}
+            self.dynamics_fn,
+            model=args.model,
+            function_args={"masses": args.masses},
         )
 
         t = get_timepoints(self.t_span, time_scale)

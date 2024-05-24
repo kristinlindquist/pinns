@@ -1,3 +1,3 @@
-from .pendulum import PendulumHamiltonianDynamics
+from .pendulum import PendulumMechanics
 
-__all__ = ["PendulumHamiltonianDynamics"]
+__all__ = ["PendulumMechanics"]
