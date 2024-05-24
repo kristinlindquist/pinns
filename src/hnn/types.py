@@ -9,7 +9,7 @@ class TrajectoryArgs(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     y0: torch.Tensor
     masses: torch.Tensor
-    time_scale: int = 20
+    time_scale: int = 15
     noise_std: float = 0
     model: torch.nn.Module | None = None
 
@@ -21,7 +21,7 @@ class DatasetArgs(BaseModel):
 
 class ModelArgs(BaseModel):
     domain: tuple[int, int] = (0, 10)
-    t_span: tuple[int, int] = (0, 30)
+    t_span: tuple[int, int] = (0, 20)
 
 
 class Trajectory(BaseModel):

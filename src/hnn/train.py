@@ -1,9 +1,9 @@
 import torch
 import math, os, sys
 import time
+import torch.nn.functional as F
 
 from hnn.models import MLP, HNN
-from hnn.utils import L2_loss
 
 
 def train(args: dict, data: dict):
@@ -21,6 +21,7 @@ def train(args: dict, data: dict):
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )
 
+    # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
     x = data["x"].clone().detach().requires_grad_().to(args.device)
     test_x = data["test_x"].clone().detach().requires_grad_().to(args.device)
     dxdt = data["dx"].clone().detach().to(args.device)
@@ -34,8 +35,10 @@ def train(args: dict, data: dict):
         optim.zero_grad()
         ixs = torch.randperm(x.shape[0])[: args.batch_size]
         dxdt_hat = model.time_derivative(x[ixs])
-        loss = L2_loss(dxdt[ixs], dxdt_hat)
+        loss = F.mse_loss(dxdt[ixs], dxdt_hat)
         loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optim.step()
         # with torch.autograd.profiler.profile() as prof:
         #     loss.backward()
@@ -45,7 +48,7 @@ def train(args: dict, data: dict):
         model.eval()
         test_ixs = torch.randperm(test_x.shape[0])[: args.batch_size]
         test_dxdt_hat = model.time_derivative(test_x[test_ixs]).detach()
-        test_loss = L2_loss(test_dxdt[test_ixs], test_dxdt_hat)
+        test_loss = F.mse_loss(test_dxdt[test_ixs], test_dxdt_hat)
 
         # log
         stats["train_loss"].append(loss.item())

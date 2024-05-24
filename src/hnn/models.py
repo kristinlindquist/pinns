@@ -6,7 +6,7 @@ from itertools import permutations
 
 class MLP(torch.nn.Module):
     """
-    Just a salt-of-the-earth MLP
+    MLP to learn the hamiltonian
     """
 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
@@ -15,6 +15,10 @@ class MLP(torch.nn.Module):
         self.linear2 = torch.nn.Linear(hidden_dim, hidden_dim)
         self.linear3 = torch.nn.Linear(hidden_dim, output_dim)
         self.nonlinearity = torch.nn.Tanh()
+
+        for layer in [self.linear1, self.linear2, self.linear3]:
+            torch.nn.init.xavier_uniform_(layer.weight)
+            torch.nn.init.zeros_(layer.bias)
 
         self.module = torch.nn.Sequential(
             self.linear1,
@@ -65,6 +69,8 @@ class HNN(torch.nn.Module):
         """
         # batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
         batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
+
+        # forward pass through mlp
         scalar_potential, vector_potential = self.forward(x)
 
         # start out with both components set to 0
@@ -75,8 +81,11 @@ class HNN(torch.nn.Module):
             """
             conservative: models energy-conserving physical systems; irrotational (vanishing curl)
             """
+            # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
             d_scalar_potential = torch.autograd.grad(
-                scalar_potential.sum(), x, create_graph=True
+                scalar_potential.sum(),
+                x,
+                create_graph=True,
             )[0]
             conservative_field = d_scalar_potential
 
@@ -85,7 +94,9 @@ class HNN(torch.nn.Module):
             solenoidal: a vector field with zero divergence (aka no sources or sinks)
             """
             d_vector_potential = torch.autograd.grad(
-                vector_potential.sum(), x, create_graph=True
+                vector_potential.sum(),
+                x,
+                create_graph=True,
             )[0]
             solenoidal_field = torch.einsum(
                 "ijk,...lj->...li", self.M, d_vector_potential

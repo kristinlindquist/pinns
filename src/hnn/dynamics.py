@@ -57,14 +57,13 @@ class HamiltonianDynamics:
             model: model to use for time derivative
             function_args: additional arguments for the Hamiltonian function
         """
-        function = self.get_function(**function_args)
-
         # n_bodies x 2 x n_dims
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
             d_ps_coords = model.time_derivative(_ps_coords).squeeze().squeeze()
         else:
+            function = self.get_function(**function_args)
             d_ps_coords = AF.jacobian(function, ps_coords)
 
         drdt, dvdt = [v.squeeze() for v in torch.split(d_ps_coords, 1, dim=1)]
@@ -108,7 +107,7 @@ class HamiltonianDynamics:
             rtol=1e-10,
             y0=y0,
             method="dopri5",
-            options={"dtype": torch.float32, "max_num_steps": 1000},
+            options={"dtype": torch.float32, "max_num_steps": 2000},
         )
 
         # num_batches*t_span[1] x n_bodies x 2
