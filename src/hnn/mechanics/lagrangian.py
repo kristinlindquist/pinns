@@ -4,42 +4,55 @@ import torch.autograd.functional as AF
 import math
 
 
-#   q_tt = (jnp.linalg.pinv(jax.hessian(lagrangian, 1)(q, q_t))
-#           @ (jax.grad(lagrangian, 0)(q, q_t)
-#              - jax.jacobian(jax.jacobian(lagrangian, 1), 0)(q, q_t) @ q_t))
-#   return dt*jnp.concatenate([q_t, q_tt])
 def lagrangian_dynamics_fn(
     lagrangian_fn: Callable,
     t: torch.Tensor,
     r: torch.Tensor,
     v: torch.Tensor,
     dt=1e-1,
-):
+) -> torch.Tensor:
+    """
+    Lagrangian dynamics function
+
+    Returns tensor shape (n_bodies x 2 x n_dims)
+
+    Should be equivalent to this JAX code:
+    ```
+        q_tt = (jnp.linalg.pinv(jax.hessian(lagrangian, 1)(q, q_t))
+                @ (jax.grad(lagrangian, 0)(q, q_t)
+                    - jax.jacobian(jax.jacobian(lagrangian, 1), 0)(q, q_t) @ q_t))
+        return dt*jnp.concatenate([q_t, q_tt])
+    ```
+    """
     r.requires_grad_(True)
     v.requires_grad_(True)
 
-    hessian = AF.hessian(lambda _v: lagrangian_fn(r, _v), v).view(
-        r.shape[0], -1, v.shape[1]
+    # grad_r (∇L(q)): 1st-order partial derivatives of L with respect to r
+    # n_bodies x n_dims
+    grad_r = torch.autograd.grad(lagrangian_fn(r, v), r)[0]
+
+    # Compute Hessian with respect to v, hessian_v
+    # - 2nd-order partial derivatives of L with respect to v
+    # - captures how the rate of change of L changes with v / curvature of L in v space
+    # n_bodies x n_dims x n_bodies x n_dims
+    hessian_v = AF.hessian(lambda _v: lagrangian_fn(r, _v), v)
+
+    # double jacobian (second-order mixed partial derivatives)
+    # gradient of L with respect to v changes with r
+    # n_bodies x n_dims x n_bodies x n_dims
+    jacobian = AF.jacobian(
+        lambda _r: AF.jacobian(
+            lambda _v: lagrangian_fn(_r, _v),
+            v,
+        ),
+        r,
     )
+    jvp_v = torch.einsum("ijkl,il->ij", jacobian, v)
 
-    grad = torch.autograd.grad(lagrangian_fn(r, v), r)[0]
+    # dv = H**−1 ⋅ (∇rL−jvp)
+    hessian_v_inv = torch.linalg.pinv(hessian_v).view(*hessian_v.shape)
+    dv = torch.einsum("bjkl,bl->bj", hessian_v_inv, (grad_r - jvp_v))
 
-    j = (
-        AF.jacobian(
-            lambda _r: AF.jacobian(
-                lambda _v: lagrangian_fn(_r, _v),
-                v,
-            ),
-            r,
-        )
-        # @ v.T
-    ).view(r.shape[0], -1, v.shape[1])
-    print("Hessian", hessian.shape, "J", j.shape, grad.unsqueeze(-2).shape)
+    new_state = dt * torch.cat([v.unsqueeze(1), dv.unsqueeze(1)], dim=1)
 
-    dv = hessian @ (grad.unsqueeze(-2) - j).transpose(1, 2)
-
-    print("dv", dv.shape, v.shape)
-    print("OK", v.view(*v.shape, 1).expand_as(dv).shape)
-
-    res = dt * torch.concat([v.view(*v.shape, 1).expand_as(dv), dv])
-    return res
+    return new_state
