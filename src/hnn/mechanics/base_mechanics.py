@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
 
 
-from hnn.mechanics.lagrangian import lagrangian_dynamics_fn
+from hnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
 from hnn.types import (
     HamiltonianFunction,
     TrajectoryArgs,
@@ -36,6 +36,7 @@ class Mechanics:
             get_function: function returning Hamiltonian function
             domain (tuple[int, int]): domain (boundary) for all dimensions
             t_span (tuple[int, int]): time span
+            use_lagrangian (bool): whether to use the Lagrangian formulation
         """
         self.get_function = get_function
         self.domain = domain
@@ -50,9 +51,7 @@ class Mechanics:
         function_args: dict = {},
     ) -> torch.Tensor:
         """
-        Hamiltonian dynamics function
-
-        Finds the Jacobian of the Hamiltonian function
+        Dynamics function - finds the state update for the supplied function
 
         Args:
             t: Time
@@ -61,22 +60,22 @@ class Mechanics:
             function_args: additional arguments for the Hamiltonian function
         """
         function = self.get_function(**function_args)
-        r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
+        r, v = [
+            s.squeeze().requires_grad_(True) for s in torch.split(ps_coords, 1, dim=1)
+        ]
 
         if self.use_lagrangian:
-            return lagrangian_dynamics_fn(function, t, r, v)
+            return lagrangian_eom(function, t, r, v)
 
         # n_bodies x 2 x n_dims
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
-            d_ps_coords = model.time_derivative(_ps_coords).squeeze().squeeze()
+            dvdt, drdt = model.time_derivative(_ps_coords).squeeze().squeeze()
         else:
-            d_ps_coords = AF.jacobian(function, r, v)
+            dvdt, drdt = AF.jacobian(function, (r, v))
 
-        drdt, dvdt = [v.squeeze() for v in torch.split(d_ps_coords, 1, dim=1)]
-        # dvdt = -dHdr; drdt = dHdv
-        S = torch.stack([dvdt, -drdt], dim=1)
+        S = torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
 
         return S
 
@@ -119,7 +118,7 @@ class Mechanics:
             options={"dtype": torch.float32, "max_num_steps": 2000},
         )
 
-        # num_batches*t_span[1] x n_bodies x 2
+        # -> num_batches*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
         r += torch.randn(*r.shape) * noise_std  # add noise
         v += torch.randn(*v.shape) * noise_std  # add noise

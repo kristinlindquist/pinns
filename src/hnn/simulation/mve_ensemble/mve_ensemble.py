@@ -39,7 +39,7 @@ def get_initial_conditions(
     total_momentum = v.sum(0)
     v -= total_momentum / n_bodies
 
-    ps_coords = torch.stack([r, v], dim=1)  # n_bodies x 2 x n_dims
+    ps_coords = torch.stack([r, v], dim=1).requires_grad_()  # n_bodies x 2 x n_dims
 
     return ps_coords, masses
 
@@ -142,7 +142,8 @@ def mve_ensemble_fn(
     Hamiltonian for a generalized MVE ensemble.
 
     Args:
-        ps_coords (torch.Tensor): Phase space coordinates (n_bodies x 2 x n_dims)
+        r (torch.Tensor): Particle position coordinates (n_bodies x 2 x n_dims)
+        v (torch.Tensor): Velocities of each particle (n_bodies x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
         use_lagrangian (bool): If True, return the Lagrangian instead of the Hamiltonian
@@ -150,9 +151,6 @@ def mve_ensemble_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    # Split coordinates into positions and momentum  (-> n_bodies x n_dims)
-    # r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
-
     # Compute kinetic energy
     kinetic_energy = calc_kinetic_energy(v, masses)
 
@@ -160,7 +158,6 @@ def mve_ensemble_fn(
     potential_energy = potential_fn(r)
 
     if use_lagrangian:
-        # Lagrangian (Total Energy)
         return kinetic_energy - potential_energy
     else:
         # Hamiltonian (Total Energy)
