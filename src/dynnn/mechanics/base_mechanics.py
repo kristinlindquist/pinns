@@ -125,9 +125,9 @@ class Mechanics:
             f=dynamics_fn,
             x=y0,
             t_span=t,
-            solver="tsit5",  # tsit5, dopri5, alf, euler, midpoint, rk4, ieuler
-            rtol=1e-10,
-            atol=1e-7,
+            solver=args.odeint_solver,
+            rtol=args.odeint_rtol,
+            atol=args.odeint_atol,
         )[1]
 
         # -> time_scale*t_span[1] x n_bodies x 2 x n_dims
