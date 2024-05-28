@@ -5,16 +5,16 @@ from torchdyn.numerics.odeint import odeint
 import torch.autograd.functional as AF
 from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
+import uuid
 
-
-from hnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
-from hnn.types import (
+from dynnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
+from dynnn.types import (
     HamiltonianFunction,
     TrajectoryArgs,
     DatasetArgs,
     Trajectory,
 )
-from hnn.utils import get_timepoints
+from dynnn.utils import get_timepoints
 
 
 class Mechanics:
@@ -44,6 +44,7 @@ class Mechanics:
         self.domain = domain
         self.t_span = t_span
         self.use_lagrangian = use_lagrangian
+        self.log = {}
 
     def dynamics_fn(
         self,
@@ -51,6 +52,7 @@ class Mechanics:
         ps_coords: torch.Tensor,
         model: torch.nn.Module | None = None,
         function_args: dict = {},
+        traj_id: str = "",
     ) -> torch.Tensor:
         """
         Dynamics function - finds the state update for the supplied function
@@ -61,8 +63,12 @@ class Mechanics:
             model: model to use for time derivative
             function_args: additional arguments for the Hamiltonian function
         """
-        if t is not None:
-            print(t)
+        if traj_id in self.log:
+            self.log[traj_id].append(t)
+            if len(self.log[traj_id]) % 100 == 0:
+                print(
+                    f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})"
+                )
 
         function = self.get_function(**function_args)
 
@@ -103,11 +109,15 @@ class Mechanics:
             args.time_scale: Time scale
             args.model: Model to use for time derivative (optional)
         """
+        traj_id = uuid.uuid4().hex
+        self.log[traj_id] = []
+
         y0, time_scale = args.y0, args.time_scale
         dynamics_fn = partial(
             self.dynamics_fn,
             model=args.model,
             function_args={"masses": args.masses},
+            traj_id=traj_id,
         )
 
         t = get_timepoints(self.t_span, time_scale)
@@ -127,6 +137,8 @@ class Mechanics:
 
         # -> time_scale*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
+
+        self.log[traj_id] = None
 
         return Trajectory(r=r, v=v, dr=drdt, dv=dvdt, t=t)
 
