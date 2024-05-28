@@ -1,7 +1,7 @@
 from typing import Any, Callable, overload
 import torch
 from functools import partial
-from torchdiffeq import odeint
+from torchdyn.numerics.odeint import odeint
 import torch.autograd.functional as AF
 from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
@@ -60,9 +60,8 @@ class Mechanics:
             function_args: additional arguments for the Hamiltonian function
         """
         function = self.get_function(**function_args)
-        r, v = [
-            s.squeeze().requires_grad_(True) for s in torch.split(ps_coords, 1, dim=1)
-        ]
+        r, v = [t.squeeze() for t in torch.split(ps_coords, 1, dim=1)]
+        print(t)
 
         if self.use_lagrangian:
             return lagrangian_eom(function, t, r, v)
@@ -71,9 +70,10 @@ class Mechanics:
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
-            dvdt, drdt = model.time_derivative(_ps_coords).squeeze().squeeze()
+            drdt, dvdt = model.time_derivative(_ps_coords).squeeze().squeeze()
         else:
-            dvdt, drdt = AF.jacobian(function, (r, v))
+            dsdt = AF.jacobian(function, ps_coords)  # diff then jacobian(fun, (r, v))
+            drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=1)]
 
         S = torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
 
@@ -109,20 +109,19 @@ class Mechanics:
 
         t = get_timepoints(self.t_span, time_scale)
         ivp = odeint(
-            dynamics_fn,
-            t=t,
+            f=dynamics_fn,
+            x=y0,
+            t_span=t,
+            solver="dopri5",
             rtol=1e-10,
-            y0=y0,
-            method="dopri5",
-            options={"dtype": torch.float32, "max_num_steps": 2000},
-        )
+        )[1]
 
         # -> time_scale*t_span[1] x n_bodies x 2 x n_dims
-        dsdt = torch.stack([self.forward(None, dp) for dp in ivp])
+        dsdt = torch.stack([dynamics_fn(None, dp) for dp in ivp])
         # -> time_scale*t_span[1] x n_bodies x n_dims
         drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
-        # -> num_batches*t_span[1] x n_bodies x 2
+        # -> time_scale*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
 
         return Trajectory(r=r, v=v, dr=drdt, dv=dvdt, t=t)

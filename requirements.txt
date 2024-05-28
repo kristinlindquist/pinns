@@ -2,4 +2,4 @@ matplotlib
 multimethod
 pydantic
 torch
-torchdiffeq
+torchdyn

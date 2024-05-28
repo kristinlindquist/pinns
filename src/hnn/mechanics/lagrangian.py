@@ -9,7 +9,7 @@ def lagrangian_equation_of_motion(
     t: torch.Tensor,
     r: torch.Tensor,
     v: torch.Tensor,
-    dt=1e-1,
+    dt: float = 1e-1,
 ) -> torch.Tensor:
     """
     Lagrangian equation of motion (EOM)

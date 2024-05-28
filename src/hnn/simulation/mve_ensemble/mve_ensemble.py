@@ -10,10 +10,11 @@ from hnn.types import ModelArgs
 def get_initial_conditions(
     n_bodies: int,
     n_dims: int,
-    width: int = 8,
-    height: int = 8,
-    depth: int = 8,
+    width: int = 3,
+    height: int = 3,
+    depth: int = 3,
     temp: float = 5.0,
+    offset: int = 3,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generate initial conditions for a system of particles.
@@ -26,11 +27,11 @@ def get_initial_conditions(
         temp (float): Temperature of the system
     """
     # initialize masses
-    masses = torch.ones(n_bodies)
+    masses = torch.ones(n_bodies).requires_grad_()
 
     # initialize positions
     possible_dims = [width, height, depth]
-    r = torch.rand(n_bodies, n_dims) * torch.tensor(possible_dims[:n_dims])
+    r = (torch.rand(n_bodies, n_dims) * torch.tensor(possible_dims[:n_dims])) + offset
 
     # initialize velocities (simplified Maxwell-Boltzmann distribution scaled by temp)
     v = torch.randn(n_bodies, n_dims) * torch.sqrt(torch.tensor([temp]))
@@ -131,37 +132,48 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
     return kinetic_energy.mean()
 
 
-def mve_ensemble_fn(
+def mve_ensemble_h_fn(
+    ps_coords: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn=calc_lennard_jones_potential,
+) -> torch.Tensor:
+    """
+    Hamiltonian for a generalized MVE ensemble.
+
+    Args:
+        ps_cooords (torch.Tensor): Particle phase space coordinates (n_bodies x 2 x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
+        potential_fn (callable): Function that computes the potential energy given positions
+
+    Returns:
+        torch.Tensor: Hamiltonian (Total energy) of the system.
+    """
+    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
+    kinetic_energy = calc_kinetic_energy(v, masses)
+    potential_energy = potential_fn(r)
+
+    return kinetic_energy + potential_energy
+
+
+def mve_ensemble_l_fn(
     r: torch.Tensor,
     v: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
-    use_lagrangian: bool = False,
 ) -> torch.Tensor:
     """
-    Hamiltonian for a generalized MVE ensemble.
+    Lagrangian for a generalized MVE ensemble.
 
     Args:
         r (torch.Tensor): Particle position coordinates (n_bodies x 2 x n_dims)
         v (torch.Tensor): Velocities of each particle (n_bodies x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
-        use_lagrangian (bool): If True, return the Lagrangian instead of the Hamiltonian
-
-    Returns:
-        torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    # Compute kinetic energy
     kinetic_energy = calc_kinetic_energy(v, masses)
-
-    # Compute potential energy
     potential_energy = potential_fn(r)
 
-    if use_lagrangian:
-        return kinetic_energy - potential_energy
-    else:
-        # Hamiltonian (Total Energy)
-        return kinetic_energy + potential_energy
+    return kinetic_energy + potential_energy
 
 
 class MveEnsembleMechanics(Mechanics):
@@ -177,15 +189,14 @@ class MveEnsembleMechanics(Mechanics):
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
         _get_function = lambda masses: partial(
-            mve_ensemble_fn,
+            mve_ensemble_l_fn if args.use_lagrangian else mve_ensemble_h_fn,
             masses=masses,
             potential_fn=self.potential_fn,
-            use_lagrangian=args.use_lagrangian,
         )
 
         super(MveEnsembleMechanics, self).__init__(
             _get_function,
-            args.domain,
+            domain=args.domain,
             t_span=args.t_span,
             use_lagrangian=args.use_lagrangian,
         )

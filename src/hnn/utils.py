@@ -1,5 +1,5 @@
 import torch
-from torchdiffeq import odeint
+from torchdyn.numerics.odeint import odeint
 
 
 def L2_loss(u, v) -> torch.Tensor:
