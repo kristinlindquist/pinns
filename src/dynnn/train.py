@@ -3,7 +3,7 @@ import math, os, sys
 import time
 import torch.nn.functional as F
 
-from hnn.models import MLP, HNN
+from dynnn.models import MLP, DynNN
 
 
 def train(args: dict, data: dict):
@@ -16,7 +16,9 @@ def train(args: dict, data: dict):
     input_dim = args.n_bodies * args.n_dims * 2
 
     diff_model = MLP(input_dim, args.hidden_dim, input_dim)
-    model = HNN(input_dim, differentiable_model=diff_model, field_type=args.field_type)
+    model = DynNN(
+        input_dim, differentiable_model=diff_model, field_type=args.field_type
+    )
     optim = torch.optim.Adam(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )

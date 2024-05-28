@@ -32,7 +32,7 @@ class MLP(torch.nn.Module):
         return self.module(x)
 
 
-class HNN(torch.nn.Module):
+class DynNN(torch.nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
     """
@@ -43,7 +43,7 @@ class HNN(torch.nn.Module):
         differentiable_model: torch.nn.Module,
         field_type: Literal["conservative", "solenoidal", "both"] = "both",
     ):
-        super(HNN, self).__init__()
+        super(DynNN, self).__init__()
         self.differentiable_model = differentiable_model
         self.M = self.permutation_tensor()  # Levi-Civita permutation tensor
         self.input_dim = input_dim
