@@ -20,6 +20,8 @@ from hnn.utils import get_timepoints
 class Mechanics:
     """
     Classical mechanics system class
+
+    On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
     """
 
     def __init__(
@@ -59,12 +61,13 @@ class Mechanics:
             model: model to use for time derivative
             function_args: additional arguments for the Hamiltonian function
         """
+        if t is not None:
+            print(t)
+
         function = self.get_function(**function_args)
-        r, v = [t.squeeze() for t in torch.split(ps_coords, 1, dim=1)]
-        print(t)
 
         if self.use_lagrangian:
-            return lagrangian_eom(function, t, r, v)
+            return lagrangian_eom(function, t, ps_coords)
 
         # n_bodies x 2 x n_dims
         if model is not None:
@@ -72,7 +75,7 @@ class Mechanics:
             _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
             drdt, dvdt = model.time_derivative(_ps_coords).squeeze().squeeze()
         else:
-            dsdt = AF.jacobian(function, ps_coords)  # diff then jacobian(fun, (r, v))
+            dsdt = AF.jacobian(function, ps_coords)  # diff than jacobian(fun, (r, v))
             drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=1)]
 
         S = torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
@@ -112,8 +115,9 @@ class Mechanics:
             f=dynamics_fn,
             x=y0,
             t_span=t,
-            solver="dopri5",
+            solver="tsit5",  # tsit5, dopri5, alf, euler, midpoint, rk4, ieuler
             rtol=1e-10,
+            atol=1e-7,
         )[1]
 
         # -> time_scale*t_span[1] x n_bodies x 2 x n_dims

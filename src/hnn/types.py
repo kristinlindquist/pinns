@@ -20,8 +20,8 @@ class DatasetArgs(BaseModel):
 
 class ModelArgs(BaseModel):
     domain: tuple[int, int] = (0, 10)
-    t_span: tuple[int, int] = (0, 20)
-    use_lagrangian: bool = True
+    t_span: tuple[int, int] = (0, 30)
+    use_lagrangian: bool = False
 
 
 class Trajectory(BaseModel):

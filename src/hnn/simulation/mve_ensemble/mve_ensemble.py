@@ -173,7 +173,7 @@ def mve_ensemble_l_fn(
     kinetic_energy = calc_kinetic_energy(v, masses)
     potential_energy = potential_fn(r)
 
-    return kinetic_energy + potential_energy
+    return kinetic_energy - potential_energy
 
 
 class MveEnsembleMechanics(Mechanics):
