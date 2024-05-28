@@ -35,6 +35,9 @@ class MLP(torch.nn.Module):
 class DynNN(torch.nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
+
+    TODO:
+    - dimensionality of permutation_tensor
     """
 
     def __init__(

@@ -2,20 +2,10 @@ from typing import Callable, Literal
 import torch
 from pydantic import BaseModel, ConfigDict
 
-HamiltonianFunction = Callable[[torch.Tensor], torch.Tensor]
+SystemFunction = Callable[[torch.Tensor], torch.Tensor]
 
+# On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
 OdeSolver = Literal["tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieuler"]
-
-
-class TrajectoryArgs(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    y0: torch.Tensor
-    masses: torch.Tensor
-    time_scale: int = 3
-    model: torch.nn.Module | None = None
-    odeint_rtol: float = 1e-10
-    odeint_atol: float = 1e-6
-    odeint_solver: OdeSolver = "tsit5"
 
 
 class DatasetArgs(BaseModel):
@@ -36,3 +26,14 @@ class Trajectory(BaseModel):
     dr: torch.Tensor
     dv: torch.Tensor
     t: torch.Tensor
+
+
+class TrajectoryArgs(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    y0: torch.Tensor
+    masses: torch.Tensor
+    time_scale: int = 3
+    model: torch.nn.Module | None = None
+    odeint_rtol: float = 1e-10
+    odeint_atol: float = 1e-6
+    odeint_solver: OdeSolver = "tsit5"

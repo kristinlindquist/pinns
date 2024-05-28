@@ -177,6 +177,10 @@ def mve_ensemble_l_fn(
 
 
 class MveEnsembleMechanics(Mechanics):
+    """
+    Mechanics for an MVE ensemble.
+    """
+
     def __init__(self, args: ModelArgs = ModelArgs()):
         # potential energy function
         # - Lennard-Jones potential

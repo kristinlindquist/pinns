@@ -9,7 +9,7 @@ import uuid
 
 from dynnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
 from dynnn.types import (
-    HamiltonianFunction,
+    SystemFunction,
     TrajectoryArgs,
     DatasetArgs,
     Trajectory,
@@ -20,13 +20,11 @@ from dynnn.utils import get_timepoints
 class Mechanics:
     """
     Classical mechanics system class
-
-    On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
     """
 
     def __init__(
         self,
-        get_function: Callable[[Any], HamiltonianFunction],
+        get_function: Callable[[Any], SystemFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
         use_lagrangian: bool = False,
