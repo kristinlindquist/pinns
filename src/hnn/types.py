@@ -10,7 +10,6 @@ class TrajectoryArgs(BaseModel):
     y0: torch.Tensor
     masses: torch.Tensor
     time_scale: int = 5
-    noise_std: float = 0
     model: torch.nn.Module | None = None
 
 

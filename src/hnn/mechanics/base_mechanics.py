@@ -98,10 +98,9 @@ class Mechanics:
             args.y0: Initial conditions
             args.masses: Masses
             args.time_scale: Time scale
-            args.noise_std: Noise standard deviation
             args.model: Model to use for time derivative (optional)
         """
-        y0, time_scale, noise_std = args.y0, args.time_scale, args.noise_std
+        y0, time_scale = args.y0, args.time_scale
         dynamics_fn = partial(
             self.dynamics_fn,
             model=args.model,
@@ -118,14 +117,13 @@ class Mechanics:
             options={"dtype": torch.float32, "max_num_steps": 2000},
         )
 
+        # -> time_scale*t_span[1] x n_bodies x 2 x n_dims
+        dsdt = torch.stack([self.forward(None, dp) for dp in ivp])
+        # -> time_scale*t_span[1] x n_bodies x n_dims
+        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
+
         # -> num_batches*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
-        r += torch.randn(*r.shape) * noise_std  # add noise
-        v += torch.randn(*v.shape) * noise_std  # add noise
-
-        dsdt = torch.stack([dynamics_fn(None, s) for s in ivp])
-        # -> num_batches*t_span[1] x n_bodies x n_dims
-        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         return Trajectory(r=r, v=v, dr=drdt, dv=dvdt, t=t)
 
