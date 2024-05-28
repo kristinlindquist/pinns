@@ -3,18 +3,18 @@ from multimethod import multidispatch
 import torch
 from functools import partial
 
-from hnn.mechanics import Mechanics
-from hnn.types import ModelArgs
+from dynnn.mechanics import Mechanics
+from dynnn.types import ModelArgs
 
 
 def get_initial_conditions(
     n_bodies: int,
     n_dims: int,
-    width: int = 3,
-    height: int = 3,
-    depth: int = 3,
+    width: int = 4,
+    height: int = 4,
+    depth: int = 4,
     temp: float = 5.0,
-    offset: int = 3,
+    offset: int = 2,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generate initial conditions for a system of particles.
