@@ -225,7 +225,11 @@ class MveEnsembleMechanics(Mechanics):
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
         _get_function = lambda masses: partial(
-            mve_ensemble_l_fn if args.use_lagrangian else mve_ensemble_h_fn,
+            (
+                mve_ensemble_l_fn
+                if args.system_type == "lagrangian"
+                else mve_ensemble_h_fn
+            ),
             masses=masses,
             potential_fn=self.potential_fn,
         )
@@ -234,5 +238,5 @@ class MveEnsembleMechanics(Mechanics):
             _get_function,
             domain=args.domain,
             t_span=args.t_span,
-            use_lagrangian=args.use_lagrangian,
+            system_type=args.system_type,
         )

@@ -1,3 +1,4 @@
+import os, pickle
 from typing import Any, Callable, overload
 import torch
 from functools import partial
@@ -9,10 +10,11 @@ import uuid
 
 from dynnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
 from dynnn.types import (
-    SystemFunction,
-    TrajectoryArgs,
     DatasetArgs,
+    SystemFunction,
+    SystemType,
     Trajectory,
+    TrajectoryArgs,
 )
 from dynnn.utils import get_timepoints
 
@@ -27,7 +29,7 @@ class Mechanics:
         get_function: Callable[[Any], SystemFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
-        use_lagrangian: bool = False,
+        system_type: SystemType = "hamiltonian",
     ):
         """
         Initialize the class
@@ -36,12 +38,12 @@ class Mechanics:
             get_function: function returning Hamiltonian function
             domain (tuple[int, int]): domain (boundary) for all dimensions
             t_span (tuple[int, int]): time span
-            use_lagrangian (bool): whether to use the Lagrangian formulation
+            system_type (SystemType): type of system (hamiltonian or lagrangian)
         """
         self.get_function = get_function
         self.domain = domain
         self.t_span = t_span
-        self.use_lagrangian = use_lagrangian
+        self.system_type = system_type
         self.log = {}
 
     def dynamics_fn(
@@ -70,7 +72,7 @@ class Mechanics:
 
         function = self.get_function(**function_args)
 
-        if self.use_lagrangian:
+        if self.system_type == "lagrangian":
             return lagrangian_eom(function, t, ps_coords)
 
         # n_bodies x 2 x n_dims
@@ -152,6 +154,35 @@ class Mechanics:
     @overload
     @get_dataset.register
     def _(
+        self,
+        args: DatasetArgs,
+        trajectory_args: TrajectoryArgs,
+    ) -> dict:
+        """
+        Generate a dataset of trajectories
+        (with pickle caching)
+
+        Args:
+        args.num_samples: Number of samples
+        args.test_split: Test split
+        trajectory_args: Additional arguments for the trajectory function
+        """
+        pickle_path = f"mve_ensemble_data-{self.system_type}.pkl"
+
+        if os.path.exists(pickle_path):
+            print(f"Loading {self.system_type} data from {pickle_path}")
+            with open(pickle_path, "rb") as file:
+                data = pickle.loads(file.read())
+        else:
+            print(f"Creating {self.system_type} data...")
+            data = self._get_dataset(args, trajectory_args)
+            print(f"Saving data to {pickle_path}")
+            with open(pickle_path, "wb") as file:
+                pickle.dump(data, file)
+
+        return data
+
+    def _get_dataset(
         self,
         args: DatasetArgs,
         trajectory_args: TrajectoryArgs,
