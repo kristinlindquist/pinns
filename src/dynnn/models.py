@@ -2,6 +2,7 @@ from typing import Literal
 import torch
 import torch.autograd.functional as AF
 from itertools import permutations
+import math
 
 
 class MLP(torch.nn.Module):
@@ -46,6 +47,41 @@ def permutation_tensor() -> torch.Tensor:
     return P
 
 
+class RotationallyInvariantLayer(torch.nn.Module):
+    def __init__(self):
+        super(RotationallyInvariantLayer, self).__init__()
+
+    @staticmethod
+    def get_output_dim(n_bodies: int) -> int:
+        return int(n_bodies * 2 + ((n_bodies * (n_bodies - 1)) / 2)) * 2
+
+    def forward(self, x):
+        """
+        Calculate rotationally invariant features from a set of particle positions.
+        """
+        batch_size, timepoints, n_bodies, num_vectors, n_dims = x.shape
+        x = x.view(batch_size * timepoints, n_bodies, num_vectors, n_dims)
+
+        # Compute pairwise dot products for each body
+        # batch_size * timepoints, n_bodies, 1, num_vectors, n_dims
+        x_i = x.unsqueeze(2)
+        # batch_size * timepoints, 1, n_bodies, num_vectors, n_dims
+        x_j = x.unsqueeze(1)
+
+        # batch_size * timepoints, n_bodies, n_bodies, num_vectors
+        dot_products = torch.sum(x_i * x_j, dim=-1)
+
+        # retain only the upper diagonal (to avoid redundant computations)
+        indices = torch.triu_indices(n_bodies, n_bodies, offset=0)
+        # batch_size * timepoints, num_unique_dot_products, num_vectors
+        dot_products = dot_products[:, indices[0], indices[1], :]
+
+        norms = torch.norm(x, dim=-1)
+        invariant_features = torch.cat([dot_products, norms], dim=-2)
+
+        return invariant_features.reshape(batch_size, timepoints, -1)
+
+
 class DynNN(torch.nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
@@ -56,18 +92,23 @@ class DynNN(torch.nn.Module):
 
     def __init__(
         self,
-        input_dim: int,
-        model: torch.nn.Module,
+        input_dims: tuple[int, int, int],
+        hidden_dim: int,
         field_type: Literal["conservative", "solenoidal", "both"] = "both",
     ):
         super(DynNN, self).__init__()
-        self.model = model
+        self.input_dim = math.prod(input_dims)
         self.P = permutation_tensor()  # Levi-Civita permutation tensor
-        self.input_dim = input_dim
+        self.M = torch.nn.Parameter(torch.randn(self.input_dim, self.input_dim))
+        self.input_dims = input_dims
         self.field_type = field_type
+        self.invariant_layer = RotationallyInvariantLayer()
 
-        # M = torch.randn(num_dims, n_bodies, n_bodies, num_dims)
-        self.M = torch.nn.Parameter(torch.randn(input_dim, input_dim))
+        self.model = MLP(
+            self.invariant_layer.get_output_dim(input_dims[0]),
+            hidden_dim,
+            self.input_dim,
+        )
 
         # a smooth, rapidly decaying 3d vector field can be decomposed into a conservative and solenoidal field
         # https://en.wikipedia.org/wiki/Helmholtz_decomposition
@@ -86,9 +127,8 @@ class DynNN(torch.nn.Module):
 
         x size: batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
         """
-        # forward pass through mlp
-        _x = x.reshape(*x.shape[0:2], -1)
-        potentials = self.model(_x).reshape(*x.shape)
+        invariant_features = self.invariant_layer(x)
+        potentials = self.model(invariant_features).reshape(*x.shape)
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
 
         if self.field_type == "none":
