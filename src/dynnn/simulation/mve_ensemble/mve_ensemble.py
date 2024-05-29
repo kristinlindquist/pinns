@@ -1,6 +1,7 @@
 from typing import overload, Callable
 from multimethod import multidispatch
 import torch
+import torch.nn.functional as F
 from functools import partial
 
 from dynnn.mechanics import Mechanics
@@ -78,8 +79,8 @@ def calc_lennard_jones_potential(
     Args:
         positions (torch.Tensor): Tensor containing positions of particles
             size:
-                n_bodies x 2 or
-                n_bodies x timepoints x 2
+                n_bodies x n_dims or
+                timepoints x n_bodies x n_dims
         σ (float): "the distance at which the particle-particle potential energy V is zero"
         ε (float): "depth of the potential well"
 
@@ -88,16 +89,19 @@ def calc_lennard_jones_potential(
 
     See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
-    n_bodies = positions.shape[0]
-    return_dim = len(positions.shape) - 2
+    n_bodies = positions.shape[-2]
 
     v = 0.0
     for i in range(n_bodies):
         for j in range(i + 1, n_bodies):
-            r = torch.linalg.vector_norm(positions[i] - positions[j], dim=return_dim)
+            r = torch.linalg.vector_norm(
+                positions[..., i, :] - positions[..., j, :],
+                dim=-1,
+            )
             r12 = (σ / r) ** 12
             r6 = (σ / r) ** 6
             v += 4 * ε * (r12 - r6)
+
     return v
 
 
@@ -109,8 +113,8 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
     Args:
         velocities (torch.Tensor): Tensor containing xy velocities of particles
             size:
-                n_bodies x 2 or
-                n_bodies x timepoints x 2
+                n_bodies x num_dims or
+                timepoints x n_bodies x num_dims
         masses (torch.Tensor): Tensor containing masses of particles
     """
     if len(masses.shape) == 1:
@@ -118,18 +122,49 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
         masses = masses.unsqueeze(-1)
 
     # Ensure masses can broadcast correctly with velocities
-    if len(velocities.shape) == 3:
-        masses = masses.unsqueeze(1)
+    if len(velocities.shape) >= 3:
+        masses = masses.reshape(*([1] * (len(velocities.shape) - 1)), masses.shape[0])
 
-    kinetics = 0.5 * masses * velocities**2
-    kinetic_energy = torch.sum(kinetics, dim=-1)
+    kinetic_energy = torch.sum(0.5 * masses * velocities**2, dim=-1)
 
     # Average the kinetic energies over all particles
     if kinetic_energy.dim() > 1:
         # If we have timepoints, average across all particles for each timepoint
-        return kinetic_energy.mean(dim=0)
+        return kinetic_energy.mean(dim=-1)
 
     return kinetic_energy.mean()
+
+
+def calc_total_energy(
+    r: torch.Tensor,
+    v: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn=calc_lennard_jones_potential,
+):
+    """
+    Compute the total energy of a system.
+    """
+    kinetic_energy = calc_kinetic_energy(v, masses)
+    potential_energy = potential_fn(r)
+    return kinetic_energy + potential_energy
+
+
+def energy_conservation_loss(
+    ps_coords: torch.Tensor,
+    ps_coords_hat: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn=calc_lennard_jones_potential,
+) -> torch.Tensor:
+    """
+    Compute loss for actual versus predicted total energy.
+
+    TODO: calc actuals only once
+    """
+    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=-2)]
+    r_hat, v_hat = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
+    energy = calc_total_energy(r, v, masses, potential_fn)
+    energy_hat = calc_total_energy(r_hat, v_hat, masses, potential_fn)
+    return torch.abs(energy - energy_hat)
 
 
 def mve_ensemble_h_fn(
@@ -149,10 +184,7 @@ def mve_ensemble_h_fn(
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
     r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
-    kinetic_energy = calc_kinetic_energy(v, masses)
-    potential_energy = potential_fn(r)
-
-    return kinetic_energy + potential_energy
+    return calc_total_energy(r, v, masses, potential_fn)
 
 
 def mve_ensemble_l_fn(

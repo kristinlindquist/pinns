@@ -9,7 +9,7 @@ OdeSolver = Literal["tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieule
 
 
 class DatasetArgs(BaseModel):
-    num_samples: int = 40
+    num_samples: int = 20
     test_split: float = 0.8
 
 

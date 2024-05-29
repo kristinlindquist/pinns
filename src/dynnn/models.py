@@ -32,6 +32,20 @@ class MLP(torch.nn.Module):
         return self.module(x)
 
 
+def permutation_tensor() -> torch.Tensor:
+    """
+    Constructs the Levi-Civita permutation tensor for 3 dimensions.
+    """
+    P = torch.zeros((3, 3, 3))
+    P[0, 1, 2] = 1
+    P[1, 2, 0] = 1
+    P[2, 0, 1] = 1
+    P[2, 1, 0] = -1
+    P[1, 0, 2] = -1
+    P[0, 2, 1] = -1
+    return P
+
+
 class DynNN(torch.nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
@@ -43,14 +57,17 @@ class DynNN(torch.nn.Module):
     def __init__(
         self,
         input_dim: int,
-        differentiable_model: torch.nn.Module,
+        model: torch.nn.Module,
         field_type: Literal["conservative", "solenoidal", "both"] = "both",
     ):
         super(DynNN, self).__init__()
-        self.differentiable_model = differentiable_model
-        self.M = self.permutation_tensor()  # Levi-Civita permutation tensor
+        self.model = model
+        self.P = permutation_tensor()  # Levi-Civita permutation tensor
         self.input_dim = input_dim
         self.field_type = field_type
+
+        # M = torch.randn(num_dims, n_bodies, n_bodies, num_dims)
+        self.M = torch.nn.Parameter(torch.randn(input_dim, input_dim))
 
         # a smooth, rapidly decaying 3d vector field can be decomposed into a conservative and solenoidal field
         # https://en.wikipedia.org/wiki/Helmholtz_decomposition
@@ -59,22 +76,31 @@ class DynNN(torch.nn.Module):
                 f"Warning: a field_type of {field_type} might not capture the full dynamics of the system."
             )
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
-        _x = x.reshape(*x.shape[0:2], -1)
-        y = self.differentiable_model(_x).reshape(*x.shape)
-        scalar_potential, vector_potential = torch.split(y, 1, dim=-2)
-        return scalar_potential, vector_potential
+    # impose the system matrix to be skew symmetric
+    def skew(self):
+        return 0.5 * (self.M - self.M.T)
 
-    def time_derivative(self, x: torch.Tensor, t=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t=None) -> torch.Tensor:
         """
         Neural Hamiltonian-style vector field
-        """
-        # batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
-        batch_size, timepoints, n_bodies, coord_dim, dim = x.shape
 
+        x size: batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
+        """
         # forward pass through mlp
-        scalar_potential, vector_potential = self.forward(x)
+        _x = x.reshape(*x.shape[0:2], -1)
+        potentials = self.model(_x).reshape(*x.shape)
+        scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
+
+        if self.field_type == "none":
+            return potentials
+
+        if self.field_type == "port":
+            d_potential = torch.autograd.grad(potentials.sum(), x, create_graph=True)[0]
+            return torch.einsum(
+                "bti,ij->btj",
+                d_potential.reshape(*d_potential.shape[0:2], -1),
+                self.skew(),
+            ).reshape(*d_potential.shape)
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)
@@ -102,20 +128,7 @@ class DynNN(torch.nn.Module):
                 create_graph=True,
             )[0]
             solenoidal_field = torch.einsum(
-                "ijk,...lj->...li", self.M, d_vector_potential
+                "ijk,...lj->...li", self.P, d_vector_potential
             )
 
         return conservative_field + solenoidal_field
-
-    def permutation_tensor(self) -> torch.Tensor:
-        """
-        Constructs the Levi-Civita permutation tensor for 3 dimensions.
-        """
-        M = torch.zeros((3, 3, 3))
-        M[0, 1, 2] = 1
-        M[1, 2, 0] = 1
-        M[2, 0, 1] = 1
-        M[2, 1, 0] = -1
-        M[1, 0, 2] = -1
-        M[0, 2, 1] = -1
-        return M

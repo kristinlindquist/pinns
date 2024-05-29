@@ -19,7 +19,7 @@ def integrate_model(
         if x.ndim == 2:
             x = x.unsqueeze(0).unsqueeze(0)
         _x = x.clone().detach().requires_grad_()
-        dx = model.time_derivative(_x).data
+        dx = model.forward(_x).data
         return dx
 
     t = get_timepoints(t_span, time_scale)

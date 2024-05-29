@@ -63,7 +63,7 @@ class Mechanics:
         """
         if traj_id in self.log:
             self.log[traj_id].append(t)
-            if len(self.log[traj_id]) % 100 == 0:
+            if len(self.log[traj_id]) % 500 == 0:
                 print(
                     f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})"
                 )
@@ -77,11 +77,11 @@ class Mechanics:
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
             _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
-            drdt, dvdt = model.time_derivative(_ps_coords).squeeze().squeeze()
+            dsdt = model.forward(_ps_coords).squeeze().squeeze()
         else:
             dsdt = AF.jacobian(function, ps_coords)  # diff than jacobian(fun, (r, v))
-            drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=1)]
 
+        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=1)]
         S = torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
 
         return S

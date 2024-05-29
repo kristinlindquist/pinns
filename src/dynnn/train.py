@@ -10,34 +10,45 @@ def train(args: dict, data: dict):
     """
     Training loop
     """
+
+    def calc_loss(dsdt, dsdt_hat, s):
+        """
+        Calculate the loss
+        """
+        loss = F.mse_loss(dsdt, dsdt_hat)
+
+        if args.additional_loss is not None:
+            new_loss = args.additional_loss(s, s + dsdt_hat * 0.01).sum()
+            loss += new_loss
+
+        return loss
+
     torch.set_default_device(args.device)
 
     # input_dim = n_bodies * n_dims * len([r, v])
     input_dim = args.n_bodies * args.n_dims * 2
 
     diff_model = MLP(input_dim, args.hidden_dim, input_dim)
-    model = DynNN(
-        input_dim, differentiable_model=diff_model, field_type=args.field_type
-    )
+    model = DynNN(input_dim, model=diff_model, field_type=args.field_type)
     optim = torch.optim.Adam(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )
 
     # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-    x = data["x"].clone().detach().requires_grad_().to(args.device)
-    test_x = data["test_x"].clone().detach().requires_grad_().to(args.device)
-    dxdt = data["dx"].clone().detach().to(args.device)
-    test_dxdt = data["test_dx"].clone().detach().to(args.device)
+    s = data["x"].clone().detach().requires_grad_().to(args.device)
+    test_s = data["test_x"].clone().detach().requires_grad_().to(args.device)
+    dsdt = data["dx"].clone().detach().to(args.device)
+    test_dsdt = data["test_dx"].clone().detach().to(args.device)
 
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
     for step in range(args.total_steps + 1):
-        # train
+        ### train ###
         model.train()
         optim.zero_grad()
-        ixs = torch.randperm(x.shape[0])[: args.batch_size]
-        dxdt_hat = model.time_derivative(x[ixs])
-        loss = F.mse_loss(dxdt[ixs], dxdt_hat)
+        idxs = torch.randperm(s.shape[0])[: args.batch_size]
+        dsdt_hat = model.forward(s[idxs])
+        loss = calc_loss(dsdt[idxs], dsdt_hat, s[idxs])
         loss.backward()
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -46,11 +57,11 @@ def train(args: dict, data: dict):
         #     loss.backward()
         # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
 
-        # test
+        ### test ###
         model.eval()
-        test_ixs = torch.randperm(test_x.shape[0])[: args.batch_size]
-        test_dxdt_hat = model.time_derivative(test_x[test_ixs]).detach()
-        test_loss = F.mse_loss(test_dxdt[test_ixs], test_dxdt_hat)
+        test_idxs = torch.randperm(test_s.shape[0])[: args.batch_size]
+        test_dsdt_hat = model.forward(test_s[test_idxs]).detach()
+        test_loss = calc_loss(test_dsdt[test_idxs], test_dsdt_hat, test_s[test_idxs])
 
         # log
         stats["train_loss"].append(loss.item())
@@ -61,10 +72,10 @@ def train(args: dict, data: dict):
             )
         )
 
-    train_dxdt_hat = model.time_derivative(x)
-    train_dist = (dxdt - train_dxdt_hat) ** 2
-    test_dxdt_hat = model.time_derivative(test_x)
-    test_dist = (test_dxdt - test_dxdt_hat) ** 2
+    train_dsdt_hat = model.forward(s)
+    train_dist = (dsdt - train_dsdt_hat) ** 2
+    test_dsdt_hat = model.forward(test_s)
+    test_dist = (test_dsdt - test_dsdt_hat) ** 2
 
     print(
         "Final train loss {:.4e} +/- {:.4e}\nFinal test loss {:.4e} +/- {:.4e}".format(
