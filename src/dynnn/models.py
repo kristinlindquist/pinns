@@ -4,6 +4,9 @@ import torch.autograd.functional as AF
 from itertools import permutations
 import math
 
+from dynnn.layers import RotationallyInvariantLayer, TranslationallyInvariantLayer
+from dynnn.utils import permutation_tensor
+
 
 class MLP(torch.nn.Module):
     """
@@ -33,55 +36,6 @@ class MLP(torch.nn.Module):
         return self.module(x)
 
 
-def permutation_tensor() -> torch.Tensor:
-    """
-    Constructs the Levi-Civita permutation tensor for 3 dimensions.
-    """
-    P = torch.zeros((3, 3, 3))
-    P[0, 1, 2] = 1
-    P[1, 2, 0] = 1
-    P[2, 0, 1] = 1
-    P[2, 1, 0] = -1
-    P[1, 0, 2] = -1
-    P[0, 2, 1] = -1
-    return P
-
-
-class RotationallyInvariantLayer(torch.nn.Module):
-    def __init__(self):
-        super(RotationallyInvariantLayer, self).__init__()
-
-    @staticmethod
-    def get_output_dim(n_bodies: int) -> int:
-        return int(n_bodies * 2 + ((n_bodies * (n_bodies - 1)) / 2)) * 2
-
-    def forward(self, x):
-        """
-        Calculate rotationally invariant features from a set of particle positions.
-        """
-        batch_size, timepoints, n_bodies, num_vectors, n_dims = x.shape
-        x = x.view(batch_size * timepoints, n_bodies, num_vectors, n_dims)
-
-        # Compute pairwise dot products for each body
-        # batch_size * timepoints, n_bodies, 1, num_vectors, n_dims
-        x_i = x.unsqueeze(2)
-        # batch_size * timepoints, 1, n_bodies, num_vectors, n_dims
-        x_j = x.unsqueeze(1)
-
-        # batch_size * timepoints, n_bodies, n_bodies, num_vectors
-        dot_products = torch.sum(x_i * x_j, dim=-1)
-
-        # retain only the upper diagonal (to avoid redundant computations)
-        indices = torch.triu_indices(n_bodies, n_bodies, offset=0)
-        # batch_size * timepoints, num_unique_dot_products, num_vectors
-        dot_products = dot_products[:, indices[0], indices[1], :]
-
-        norms = torch.norm(x, dim=-1)
-        invariant_features = torch.cat([dot_products, norms], dim=-2)
-
-        return invariant_features.reshape(batch_size, timepoints, -1)
-
-
 class DynNN(torch.nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
@@ -102,10 +56,13 @@ class DynNN(torch.nn.Module):
         self.M = torch.nn.Parameter(torch.randn(self.input_dim, self.input_dim))
         self.input_dims = input_dims
         self.field_type = field_type
-        self.invariant_layer = RotationallyInvariantLayer()
+        self.invariant_layer = torch.nn.Sequential(
+            TranslationallyInvariantLayer(),
+            RotationallyInvariantLayer(),
+        )
 
         self.model = MLP(
-            self.invariant_layer.get_output_dim(input_dims[0]),
+            RotationallyInvariantLayer.get_output_dim(input_dims[0]),
             hidden_dim,
             self.input_dim,
         )

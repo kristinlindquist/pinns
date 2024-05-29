@@ -2,14 +2,24 @@ import torch
 from torchdyn.numerics.odeint import odeint
 
 
-def L2_loss(u, v) -> torch.Tensor:
-    return (u - v).pow(2).mean()
-
-
 def get_timepoints(t_span: tuple[int, int], time_scale: int = 30) -> torch.Tensor:
     return torch.linspace(
         t_span[0], t_span[1], int(time_scale * (t_span[1] - t_span[0]))
     )
+
+
+def permutation_tensor() -> torch.Tensor:
+    """
+    Constructs the Levi-Civita permutation tensor for 3 dimensions.
+    """
+    P = torch.zeros((3, 3, 3))
+    P[0, 1, 2] = 1
+    P[1, 2, 0] = 1
+    P[2, 0, 1] = 1
+    P[2, 1, 0] = -1
+    P[1, 0, 2] = -1
+    P[0, 2, 1] = -1
+    return P
 
 
 def integrate_model(

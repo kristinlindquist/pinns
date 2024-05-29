@@ -49,11 +49,12 @@ def train(args: dict, data: dict):
         loss = calc_loss(dsdt[idxs], dsdt_hat, s[idxs])
         loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optim.step()
         # with torch.autograd.profiler.profile() as prof:
         #     loss.backward()
         # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optim.step()
 
         ### test ###
         model.eval()
