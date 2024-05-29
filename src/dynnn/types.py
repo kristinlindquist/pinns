@@ -3,7 +3,7 @@ import torch
 from pydantic import BaseModel, ConfigDict
 
 SystemFunction = Callable[[torch.Tensor], torch.Tensor]
-SystemType = ["lagrangian", "hamiltonian"]
+SystemType = Literal["lagrangian", "hamiltonian"]
 
 # On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
 OdeSolver = Literal["tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieuler"]
@@ -15,7 +15,6 @@ class DatasetArgs(BaseModel):
 
 
 class ModelArgs(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
     domain: tuple[int, int] = (0, 10)
     t_span: tuple[int, int] = (0, 30)
     system_type: SystemType = "hamiltonian"
