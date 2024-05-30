@@ -2,7 +2,7 @@ import os, pickle
 from typing import Any, Callable, overload
 import torch
 from functools import partial
-from torchdyn.numerics.odeint import odeint
+from torchdyn.numerics.odeint import odeint, odeint_symplectic
 import torch.autograd.functional as AF
 from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
@@ -121,7 +121,9 @@ class Mechanics:
         )
 
         t = get_timepoints(self.t_span, time_scale)
-        ivp = odeint(
+
+        solve_ivp = odeint_symplectic if args.odeint_solver == "symplectic" else odeint
+        ivp = solve_ivp(
             f=dynamics_fn,
             x=y0,
             t_span=t,

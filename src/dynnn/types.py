@@ -6,7 +6,9 @@ SystemFunction = Callable[[torch.Tensor], torch.Tensor]
 SystemType = Literal["lagrangian", "hamiltonian"]
 
 # On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
-OdeSolver = Literal["tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieuler"]
+OdeSolver = Literal[
+    "tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieuler", "symplectic"
+]
 
 
 class DatasetArgs(BaseModel):
@@ -16,7 +18,7 @@ class DatasetArgs(BaseModel):
 
 class ModelArgs(BaseModel):
     domain: tuple[int, int] = (0, 10)
-    t_span: tuple[int, int] = (0, 30)
+    t_span: tuple[int, int] = (0, 100)
     system_type: SystemType = "hamiltonian"
 
 
