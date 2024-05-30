@@ -49,24 +49,41 @@ def get_initial_conditions(
 def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
-    steepness: float = 10.0,
-    width: float = 0.15,
-):
+    steepness: float = 100.0,
+    width: float = 0.05,
+) -> torch.Tensor:
     """
-    A conservative boundary potential that fades out smoothly
-    NOTE: energy is not perfectly conserved around this boundary
+    A conservative boundary potential that fades out smoothly.
+    NOTE: Energy is not perfectly conserved around this boundary.
+
+    Args:
+        positions (torch.Tensor): Particle position coordinates (n_bodies x n_dims).
+        boundaries (tuple[float, float]): Boundary positions (min and max) for each dimension.
+        steepness (float): Steepness of the boundary potential.
+        width (float): Width of the boundary region where the potential is applied.
+
+    Returns:
+        torch.Tensor: Total boundary potential for the given positions.
     """
+    if len(positions.shape) != 2:
+        raise ValueError("Positions must be n_bodies x n_dims")
 
-    def _boundary_potential(boundary):
-        distance = torch.abs(positions - boundary).reshape(-1)
-        mask = distance < width
-        distance[mask] = steepness * (1 - (distance[mask] / width) ** 2) ** 2
-        return distance
+    # Smoothly varying boundary potential function
+    def smooth_boundary_potential(distance, width, steepness):
+        return steepness * torch.exp(-((distance / width) ** 2))
 
-    boundary_effect = torch.sum(
-        torch.stack([_boundary_potential(b) for b in boundaries])
-    )
-    return boundary_effect
+    # Calculate distances to the minimum and maximum boundaries
+    distance_min = torch.abs(positions - boundaries[0])
+    distance_max = torch.abs(positions - boundaries[1])
+
+    # Apply smooth boundary potential
+    boundary_potential_min = smooth_boundary_potential(distance_min, width, steepness)
+    boundary_potential_max = smooth_boundary_potential(distance_max, width, steepness)
+
+    # Sum the boundary potentials across all dimensions and particles
+    total_boundary_effect = boundary_potential_min.sum() + boundary_potential_max.sum()
+
+    return total_boundary_effect
 
 
 def calc_lennard_jones_potential(
@@ -89,20 +106,11 @@ def calc_lennard_jones_potential(
 
     See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
-    n_bodies = positions.shape[-2]
+    distances = torch.cdist(positions, positions)
+    lj = 4 * ε * ((σ / distances) ** 12 - (σ / distances) ** 6)
+    lj.nan_to_num_(0.0)
 
-    v = 0.0
-    for i in range(n_bodies):
-        for j in range(i + 1, n_bodies):
-            r = torch.linalg.vector_norm(
-                positions[..., i, :] - positions[..., j, :],
-                dim=-1,
-            )
-            r12 = (σ / r) ** 12
-            r6 = (σ / r) ** 6
-            v += 4 * ε * (r12 - r6)
-
-    return v
+    return lj.sum((-1, -2)) / 2
 
 
 def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch.Tensor:
@@ -123,7 +131,9 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
     # Ensure masses can broadcast correctly with velocities
     if len(velocities.shape) >= 3:
-        masses = masses.reshape(*([1] * (len(velocities.shape) - 1)), masses.shape[0])
+        masses = masses.reshape(
+            *([1] * (len(velocities.shape) - 2)), masses.shape[0], 1
+        )
 
     kinetic_energy = torch.sum(0.5 * masses * velocities**2, dim=-1)
 
@@ -164,7 +174,7 @@ def energy_conservation_loss(
     r_hat, v_hat = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
     energy = calc_total_energy(r, v, masses, potential_fn)
     energy_hat = calc_total_energy(r_hat, v_hat, masses, potential_fn)
-    return torch.abs(energy - energy_hat)
+    return torch.pow(energy - energy_hat, 2)
 
 
 def mve_ensemble_h_fn(
