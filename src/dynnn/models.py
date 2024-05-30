@@ -60,9 +60,14 @@ class DynNN(torch.nn.Module):
             TranslationallyInvariantLayer(),
             RotationallyInvariantLayer(),
         )
+        self.use_invariant_layer = False
 
         self.model = MLP(
-            RotationallyInvariantLayer.get_output_dim(input_dims[0]),
+            (
+                RotationallyInvariantLayer.get_output_dim(input_dims[0])
+                if self.use_invariant_layer
+                else self.input_dim
+            ),
             hidden_dim,
             self.input_dim,
         )
@@ -84,14 +89,19 @@ class DynNN(torch.nn.Module):
 
         x size: batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
         """
-        invariant_features = self.invariant_layer(x)
-        potentials = self.model(invariant_features).reshape(*x.shape)
+        if self.use_invariant_layer:
+            invariant_features = self.invariant_layer(x)
+            potentials = self.model(invariant_features).reshape(*x.shape)
+        else:
+            potentials = self.model(x.reshape(*x.shape[:-2], -1)).reshape(*x.shape)
+
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
 
         if self.field_type == "none":
             return potentials
 
         if self.field_type == "port":
+            # skew invariant
             d_potential = torch.autograd.grad(potentials.sum(), x, create_graph=True)[0]
             return torch.einsum(
                 "bti,ij->btj",
