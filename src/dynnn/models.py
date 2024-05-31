@@ -93,7 +93,7 @@ class DynNN(torch.nn.Module):
             invariant_features = self.invariant_layer(x)
             potentials = self.model(invariant_features).reshape(*x.shape)
         else:
-            potentials = self.model(x.reshape(*x.shape[:-2], -1)).reshape(*x.shape)
+            potentials = self.model(x.reshape(*x.shape[0:2], -1)).reshape(*x.shape)
 
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
 
