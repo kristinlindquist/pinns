@@ -26,7 +26,7 @@ def hamiltonian_equation_of_motion(
         _ps_coords = ps_coords.reshape(1, 1, *ps_coords.shape)
         dsdt = model.forward(_ps_coords).reshape(ps_coords.shape)
     else:
-        dsdt = AF.jacobian(function, ps_coords)
+        dsdt = AF.jacobian(function, ps_coords, create_graph=True)
 
     dhdv, dhdr = dsdt[:, 0], dsdt[:, 1]
     dvdt = -dhdr

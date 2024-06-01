@@ -115,7 +115,14 @@ class DynNN(torch.nn.Module):
 
         if self.field_type in ["both", "conservative"]:
             """
-            conservative: models energy-conserving physical systems; irrotational (vanishing curl)
+            Conservative: models energy-conserving physical systems; irrotational (vanishing curl).
+
+            If F is a conservative vector field, ∃ a scalar function φ such that F = ∇φ
+            (so the MLP learns φ and we take the gradient to get F)
+
+            Vector field F is conservative IFF there exists this scalar function,
+            i.e. a conservative vector field is completely described by its scalar potential function
+            (which is why we're looking at only scalar_potential here)
             """
             # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
             d_scalar_potential = torch.autograd.grad(
@@ -127,7 +134,7 @@ class DynNN(torch.nn.Module):
 
         if self.field_type in ["both", "solenoidal"]:
             """
-            solenoidal: a vector field with zero divergence (aka no sources or sinks)
+            Solenoidal: a vector field with zero divergence (aka no sources or sinks).
             """
             d_vector_potential = torch.autograd.grad(
                 vector_potential.sum(),
