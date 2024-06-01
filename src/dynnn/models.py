@@ -10,7 +10,7 @@ from dynnn.utils import permutation_tensor
 
 class MLP(torch.nn.Module):
     """
-    MLP to learn the hamiltonian
+    Simple multi-layer perceptron (MLP) for learning vector fields
     """
 
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):

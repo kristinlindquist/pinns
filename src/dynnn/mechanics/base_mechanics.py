@@ -9,6 +9,9 @@ from multimethod import multidispatch, multimethod
 import uuid
 
 from dynnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
+from dynnn.mechanics.hamiltonian import (
+    hamiltonian_equation_of_motion as hamiltonian_eom,
+)
 from dynnn.types import (
     DatasetArgs,
     SystemFunction,
@@ -61,7 +64,7 @@ class Mechanics:
             t: Time
             ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
             model: model to use for time derivative
-            function_args: additional arguments for the Hamiltonian function
+            function_args: additional arguments for the function
         """
         if traj_id in self.log:
             self.log[traj_id].append(t)
@@ -72,21 +75,19 @@ class Mechanics:
 
         function = self.get_function(**function_args)
 
+        # lagrangian
+        # TODO: model
         if self.system_type == "lagrangian":
             return lagrangian_eom(function, t, ps_coords)
 
-        # n_bodies x 2 x n_dims
+        # hamiltonian
         if model is not None:
             # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
-            dsdt = model.forward(_ps_coords).squeeze().squeeze()
-        else:
-            dsdt = AF.jacobian(function, ps_coords)  # diff than jacobian(fun, (r, v))
+            _ps_coords = ps_coords.reshape(1, 1, *ps_coords.shape)
+            dsdt = model.forward(_ps_coords).reshape(ps_coords.shape)
+            return torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
 
-        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=1)]
-        S = torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
-
-        return S
+        return hamiltonian_eom(function, t, ps_coords)
 
     @multidispatch
     def get_trajectory(self, args) -> Trajectory:

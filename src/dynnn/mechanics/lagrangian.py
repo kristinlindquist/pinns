@@ -5,14 +5,22 @@ import math
 from itertools import permutations, combinations, combinations_with_replacement
 
 
-def lagrangian_equation_of_motion(
-    lagrangian_fn: Callable, t: torch.Tensor, ps_coords: torch.Tensor
+def _lagrangian_equation_of_motion(
+    function: Callable,
+    t: torch.Tensor,
+    ps_coords: torch.Tensor,
 ) -> torch.Tensor:
     """
     Lagrangian equation of motion (EOM)
     "The prinicple of least action" - Euler-Lagrange equation
 
-    Returns state update (size: n_bodies x 2 x n_dims)
+    Args:
+        function (Callable): energy function
+        t (torch.Tensor): Time
+        ps_coords (torch.Tensor): Phase space coordinates (n_bodies x 2 x n_dims)
+
+    Returns:
+        torch.Tensor: time derivative of the phase space coordinates (n_bodies x 2 x n_dims))
 
     Should be equivalent to this JAX code:
     ```
@@ -27,17 +35,17 @@ def lagrangian_equation_of_motion(
 
     # grad_r (∇L(q)): 1st-order partial derivatives of L with respect to r
     # n_bodies x n_dims
-    grad_r = torch.autograd.grad(lagrangian_fn(r, v), r, create_graph=True)[0]
+    grad_r = torch.autograd.grad(function(r, v), r, create_graph=True)[0]
 
     # Compute Hessian with respect to v, hessian_v
     # - 2nd-order partial derivatives of L with respect to v
     # - captures how the rate of change of L changes with v / curvature of L in v space
-    hessian_v = AF.hessian(lambda _v: lagrangian_fn(r, _v), v, create_graph=True)
+    hessian_v = AF.hessian(lambda _v: function(r, _v), v, create_graph=True)
 
     # double jacobian (second-order mixed partial derivatives)
     # gradient of L with respect to v changes with r
     jacobian = AF.jacobian(
-        lambda _r: AF.jacobian(lambda _v: lagrangian_fn(_r, _v), v, create_graph=True),
+        lambda _r: AF.jacobian(lambda _v: function(_r, _v), v, create_graph=True),
         r,
         create_graph=True,
     )
@@ -50,3 +58,31 @@ def lagrangian_equation_of_motion(
     S = torch.stack([v, dv], dim=1)
 
     return S
+
+
+def lagrangian_equation_of_motion(
+    function: Callable,
+    t: torch.Tensor,
+    ps_coords: torch.Tensor,
+    model: torch.nn.Module = None,
+) -> torch.Tensor:
+    """
+    Lagrangian equation of motion (EOM)
+
+    Args:
+        function (Callable): energy function
+        t (torch.Tensor): Time
+        ps_coords (torch.Tensor): Phase space coordinates (n_bodies x 2 x n_dims)
+        model (torch.nn.Module): model to use for time derivative
+
+    Returns:
+        torch.Tensor: time derivative of the phase space coordinates (n_bodies x 2 x n_dims)
+    """
+    if model is not None:
+        # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
+        _ps_coords = ps_coords.reshape(1, 1, *ps_coords.shape)
+        dsdt = model.forward(_ps_coords).reshape(ps_coords.shape)
+        v, dv = dsdt[:, 0], dsdt[:, 1]
+        return torch.stack([v, dv], dim=1)
+
+    return _lagrangian_equation_of_motion(function, t, ps_coords)

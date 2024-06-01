@@ -49,7 +49,7 @@ def get_initial_conditions(
 def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
-    steepness: float = 100.0,
+    steepness: float = 1000.0,
     width: float = 0.05,
 ) -> torch.Tensor:
     """
@@ -193,7 +193,7 @@ def mve_ensemble_h_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
+    r, v = ps_coords[:, 0], ps_coords[:, 1]
     return calc_total_energy(r, v, masses, potential_fn)
 
 
@@ -211,6 +211,9 @@ def mve_ensemble_l_fn(
         v (torch.Tensor): Velocities of each particle (n_bodies x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
+
+    Returns:
+        torch.Tensor: Lagrangian of the system.
     """
     kinetic_energy = calc_kinetic_energy(v, masses)
     potential_energy = potential_fn(r)
