@@ -12,7 +12,7 @@ def _lagrangian_equation_of_motion(
 ) -> torch.Tensor:
     """
     Lagrangian equation of motion (EOM) / Euler-Lagrange equation
-    "The prinicple of least action"
+    "The principle of least action"
 
     = d/dt (∂L/∂v) - ∂L/∂r = 0
     = accelerations = dv/dt = (∂²L/∂v²)^(-1) * (∂L/∂r - ∂²L/(∂r∂v) * v)
