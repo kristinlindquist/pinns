@@ -11,18 +11,31 @@ class TranslationallyInvariantLayer(torch.nn.Module):
         super(TranslationallyInvariantLayer, self).__init__()
 
     def forward(self, x):
-        """
-        Calculate translationally invariant features from a set of particle positions.
-        """
-        # batch_size, timepoints, 1, num_vectors, n_dims
+        # batch_size, timepoints, n_bodies, num_vectors, n_dims
         x_mean = x.mean(dim=2, keepdim=True)
 
         # Subtract the mean from each vector to ensure translation invariance
-        x = x - x_mean
+        x = (x - x_mean).reshape(*x.shape[0:2], -1)
         return x
 
 
 class RotationallyInvariantLayer(torch.nn.Module):
+    """
+    Compute rotationally invariant features from a set of particle positions.
+
+    NOTE: this decreases the model's ability to learn. Don't use.
+
+    self.invariant_layer = torch.nn.Sequential(
+        RotationallyInvariantLayer(),
+        TranslationallyInvariantLayer()
+    )
+    in_dim = (
+        RotationallyInvariantLayer.get_output_dim(input_dims[0])
+        if self.use_invariant_layer and False
+        else self.input_dim
+    )
+    """
+
     def __init__(self):
         super(RotationallyInvariantLayer, self).__init__()
 
@@ -44,13 +57,17 @@ class RotationallyInvariantLayer(torch.nn.Module):
         x_j = x.unsqueeze(1)
 
         # batch_size * timepoints, n_bodies, n_bodies, num_vectors
+        # captures the relative orientations between the vectors
         dot_products = torch.sum(x_i * x_j, dim=-1)
 
         # retain only the upper diagonal (to avoid redundant computations)
         mask = torch.ones(n_bodies, n_bodies, dtype=torch.bool).triu()
+
         dot_products = dot_products[:, mask]
 
+        # the magnitudes of the individual vectors
         norms = torch.norm(x, dim=-1)
+
         invariant_features = torch.cat([dot_products, norms], dim=-2)
 
         return invariant_features.reshape(batch_size, timepoints, -1)

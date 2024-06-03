@@ -4,7 +4,7 @@ import torch.autograd.functional as AF
 from itertools import permutations
 import math
 
-from dynnn.layers import RotationallyInvariantLayer, TranslationallyInvariantLayer
+from dynnn.layers import TranslationallyInvariantLayer
 from dynnn.utils import permutation_tensor
 
 
@@ -56,21 +56,10 @@ class DynNN(torch.nn.Module):
         self.M = torch.nn.Parameter(torch.randn(self.input_dim, self.input_dim))
         self.input_dims = input_dims
         self.field_type = field_type
-        self.invariant_layer = torch.nn.Sequential(
-            TranslationallyInvariantLayer(),
-            RotationallyInvariantLayer(),
-        )
-        self.use_invariant_layer = False
+        self.invariant_layer = TranslationallyInvariantLayer()
+        self.use_invariant_layer = True
 
-        self.model = MLP(
-            (
-                RotationallyInvariantLayer.get_output_dim(input_dims[0])
-                if self.use_invariant_layer
-                else self.input_dim
-            ),
-            hidden_dim,
-            self.input_dim,
-        )
+        self.model = MLP(self.input_dim, hidden_dim, self.input_dim)
 
         # a smooth, rapidly decaying 3d vector field can be decomposed into a conservative and solenoidal field
         # https://en.wikipedia.org/wiki/Helmholtz_decomposition

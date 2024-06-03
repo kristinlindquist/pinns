@@ -81,12 +81,6 @@ class Mechanics:
             return lagrangian_eom(function, t, ps_coords)
 
         # hamiltonian
-        if model is not None:
-            # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            _ps_coords = ps_coords.reshape(1, 1, *ps_coords.shape)
-            dsdt = model.forward(_ps_coords).reshape(ps_coords.shape)
-            return torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
-
         return hamiltonian_eom(function, t, ps_coords)
 
     @multidispatch

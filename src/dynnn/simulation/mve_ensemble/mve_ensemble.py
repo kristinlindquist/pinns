@@ -215,10 +215,10 @@ def mve_ensemble_l_fn(
     Returns:
         torch.Tensor: Lagrangian of the system.
     """
-    kinetic_energy = calc_kinetic_energy(v, masses)
-    potential_energy = potential_fn(r)
+    T = calc_kinetic_energy(v, masses)
+    V = potential_fn(r)
 
-    return kinetic_energy - potential_energy
+    return T - V
 
 
 class MveEnsembleMechanics(Mechanics):
