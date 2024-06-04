@@ -166,15 +166,13 @@ def energy_conservation_loss(
     potential_fn=calc_lennard_jones_potential,
 ) -> torch.Tensor:
     """
-    Compute loss for actual versus predicted total energy.
-
-    TODO: calc actuals only once
+    Compute total energy difference of a system over time. Should be zero.
     """
-    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=-2)]
-    r_hat, v_hat = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
+    r, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
     energy = calc_total_energy(r, v, masses, potential_fn)
-    energy_hat = calc_total_energy(r_hat, v_hat, masses, potential_fn)
-    return torch.pow(energy - energy_hat, 2)
+    energy_diff = torch.abs(torch.diff(energy, dim=1)).mean(dim=1)
+
+    return energy_diff.mean()
 
 
 def mve_ensemble_h_fn(
@@ -237,7 +235,7 @@ class MveEnsembleMechanics(Mechanics):
         self.potential_fn = potential_fn
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
-        _get_function = lambda masses: partial(
+        _get_generator_fn = lambda masses: partial(
             (
                 mve_ensemble_l_fn
                 if args.system_type == "lagrangian"
@@ -248,7 +246,7 @@ class MveEnsembleMechanics(Mechanics):
         )
 
         super(MveEnsembleMechanics, self).__init__(
-            _get_function,
+            _get_generator_fn,
             domain=args.domain,
             t_span=args.t_span,
             system_type=args.system_type,

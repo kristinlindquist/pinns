@@ -72,7 +72,7 @@ def lagrangian_equation_of_motion(
     Lagrangian equation of motion (EOM)
 
     Args:
-        lagrangian_fn (Callable): Lagrangian energy function (L = T - V)
+        lagrangian_fn (Callable): Lagrangian function / generator (L = T - V)
         t (torch.Tensor): Time
         ps_coords (torch.Tensor): Phase space coordinates (n_bodies x 2 x n_dims)
         model (torch.nn.Module): model to use for time derivative

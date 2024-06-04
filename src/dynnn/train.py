@@ -35,8 +35,8 @@ def train(args: dict, data: dict):
     # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
     s = data["x"].clone().detach().requires_grad_().to(args.device)
     test_s = data["test_x"].clone().detach().requires_grad_().to(args.device)
-    dsdt = data["dx"].clone().detach().to(args.device)
-    test_dsdt = data["test_dx"].clone().detach().to(args.device)
+    dsdt = data["dx"].clone().detach().requires_grad_().to(args.device)
+    test_dsdt = data["test_dx"].clone().detach().requires_grad_().to(args.device)
 
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
@@ -59,7 +59,7 @@ def train(args: dict, data: dict):
         ### test ###
         model.eval()
         test_idxs = torch.randperm(test_s.shape[0])[: args.batch_size]
-        test_dsdt_hat = model.forward(test_s[test_idxs]).detach()
+        test_dsdt_hat = model.forward(test_s[test_idxs])  # .detach()
         test_loss = calc_loss(test_dsdt[test_idxs], test_dsdt_hat, test_s[test_idxs])
 
         # log

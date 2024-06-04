@@ -29,7 +29,7 @@ class Mechanics:
 
     def __init__(
         self,
-        get_function: Callable[[Any], SystemFunction],
+        get_generator_fn: Callable[[Any], SystemFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
         system_type: SystemType = "hamiltonian",
@@ -38,12 +38,12 @@ class Mechanics:
         Initialize the class
 
         Args:
-            get_function: function returning Hamiltonian function
+            get_generator_fn: function returning Hamiltonian function
             domain (tuple[int, int]): domain (boundary) for all dimensions
             t_span (tuple[int, int]): time span
             system_type (SystemType): type of system (hamiltonian or lagrangian)
         """
-        self.get_function = get_function
+        self.get_generator_fn = get_generator_fn
         self.domain = domain
         self.t_span = t_span
         self.system_type = system_type
@@ -73,15 +73,15 @@ class Mechanics:
                     f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})"
                 )
 
-        function = self.get_function(**function_args)
+        generator_fn = self.get_generator_fn(**function_args)
 
         # lagrangian
         # TODO: model
         if self.system_type == "lagrangian":
-            return lagrangian_eom(function, t, ps_coords)
+            return lagrangian_eom(generator_fn, t, ps_coords)
 
         # hamiltonian
-        return hamiltonian_eom(function, t, ps_coords)
+        return hamiltonian_eom(generator_fn, t, ps_coords)
 
     @multidispatch
     def get_trajectory(self, args) -> Trajectory:

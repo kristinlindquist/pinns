@@ -68,8 +68,10 @@ class DynNN(torch.nn.Module):
                 f"Warning: a field_type of {field_type} might not capture the full dynamics of the system."
             )
 
-    # impose the system matrix to be skew symmetric
     def skew(self):
+        """
+        Skew-symmetric matrix
+        """
         return 0.5 * (self.M - self.M.T)
 
     def forward(self, x: torch.Tensor, t=None) -> torch.Tensor:
@@ -90,7 +92,7 @@ class DynNN(torch.nn.Module):
             return potentials
 
         if self.field_type == "port":
-            # skew invariant
+            # learn skew invariance
             d_potential = torch.autograd.grad(potentials.sum(), x, create_graph=True)[0]
             return torch.einsum(
                 "bti,ij->btj",

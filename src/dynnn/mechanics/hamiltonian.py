@@ -5,7 +5,7 @@ from dynnn.types import SystemFunction
 
 
 def hamiltonian_equation_of_motion(
-    function: SystemFunction,
+    hamiltonian_fn: SystemFunction,
     t: torch.Tensor,
     ps_coords: torch.Tensor,
     model: torch.nn.Module | None = None,
@@ -14,7 +14,7 @@ def hamiltonian_equation_of_motion(
     Hamiltonian equations of motion
 
     Args:
-        function: energy function
+        hamiltonian_fn: hamiltonian function / generator (H = T + V)
         t: time
         ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
 
@@ -26,7 +26,7 @@ def hamiltonian_equation_of_motion(
         _ps_coords = ps_coords.reshape(1, 1, *ps_coords.shape)
         dsdt = model.forward(_ps_coords).reshape(ps_coords.shape)
     else:
-        dsdt = AF.jacobian(function, ps_coords, create_graph=True)
+        dsdt = AF.jacobian(hamiltonian_fn, ps_coords, create_graph=True)
 
     dhdv, dhdr = dsdt[:, 0], dsdt[:, 1]
     dvdt = -dhdr
