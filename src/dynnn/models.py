@@ -32,7 +32,7 @@ class MLP(torch.nn.Module):
             self.linear3,
         )
 
-    def forward(self, x) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.module(x)
 
 
@@ -74,7 +74,7 @@ class DynNN(torch.nn.Module):
         """
         return 0.5 * (self.M - self.M.T)
 
-    def forward(self, x: torch.Tensor, t=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
         """
         Neural Hamiltonian-style vector field
 
@@ -82,9 +82,11 @@ class DynNN(torch.nn.Module):
         """
         if self.use_invariant_layer:
             invariant_features = self.invariant_layer(x)
-            potentials = self.model(invariant_features).reshape(*x.shape)
+            potentials = self.model(invariant_features).reshape(x.shape)
         else:
-            potentials = self.model(x.reshape(*x.shape[0:2], -1)).reshape(*x.shape)
+            potentials = self.model(x.reshape(x.shape[0], x.shape[1], -1)).reshape(
+                x.shape
+            )
 
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
 
@@ -93,12 +95,16 @@ class DynNN(torch.nn.Module):
 
         if self.field_type == "port":
             # learn skew invariance
-            d_potential = torch.autograd.grad(potentials.sum(), x, create_graph=True)[0]
+            d_potential = torch.autograd.grad(
+                [potentials.sum()], [x], create_graph=True
+            )[0]
+
+            assert d_potential is not None
             return torch.einsum(
                 "bti,ij->btj",
-                d_potential.reshape(*d_potential.shape[0:2], -1),
+                d_potential.reshape(d_potential[0], d_potential[1], -1),
                 self.skew(),
-            ).reshape(*d_potential.shape)
+            ).reshape(d_potential.shape)
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)
@@ -117,10 +123,11 @@ class DynNN(torch.nn.Module):
             """
             # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
             d_scalar_potential = torch.autograd.grad(
-                scalar_potential.sum(),
-                x,
+                [scalar_potential.sum()],
+                [x],
                 create_graph=True,
             )[0]
+            assert d_scalar_potential is not None
             conservative_field = d_scalar_potential
 
         if self.field_type in ["both", "solenoidal"]:
@@ -128,10 +135,11 @@ class DynNN(torch.nn.Module):
             Solenoidal: a vector field with zero divergence (aka no sources or sinks).
             """
             d_vector_potential = torch.autograd.grad(
-                vector_potential.sum(),
-                x,
+                [vector_potential.sum()],
+                [x],
                 create_graph=True,
             )[0]
+            assert d_vector_potential is not None
             solenoidal_field = torch.einsum(
                 "ijk,...lj->...li", self.P, d_vector_potential
             )

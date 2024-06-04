@@ -10,12 +10,12 @@ class TranslationallyInvariantLayer(torch.nn.Module):
     def __init__(self):
         super(TranslationallyInvariantLayer, self).__init__()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # batch_size, timepoints, n_bodies, num_vectors, n_dims
         x_mean = x.mean(dim=2, keepdim=True)
 
         # Subtract the mean from each vector to ensure translation invariance
-        x = (x - x_mean).reshape(*x.shape[0:2], -1)
+        x = (x - x_mean).reshape(x.shape[0], x.shape[1], -1)
         return x
 
 
@@ -43,7 +43,7 @@ class RotationallyInvariantLayer(torch.nn.Module):
     def get_output_dim(n_bodies: int) -> int:
         return int(n_bodies * 2 + ((n_bodies * (n_bodies - 1)) / 2)) * 2
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Calculate rotationally invariant features from a set of particle positions.
         """

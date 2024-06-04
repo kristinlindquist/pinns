@@ -38,11 +38,12 @@ def _lagrangian_equation_of_motion(
 
     # ∂L/∂r: 1st-order partial derivatives of L with respect to r
     # n_bodies x n_dims
-    dLdr = torch.autograd.grad(lagrangian_fn(r, v), r, create_graph=True)[0]
+    dLdr = torch.autograd.grad([lagrangian_fn(r, v)], [r], create_graph=True)[0]
+    assert dLdr is not None
 
     # ∂²L/∂v²
     dLdv = AF.hessian(lambda _v: lagrangian_fn(r, _v), v, create_graph=True)
-    dLdv_inv = torch.linalg.pinv(dLdv).reshape(*dLdv.shape)
+    dLdv_inv = torch.linalg.pinv(dLdv).reshape(dLdv.shape)
 
     # ∂²L/(∂r∂v) : gradient of L with respect to v changes with r
     dLdrdv = AF.jacobian(

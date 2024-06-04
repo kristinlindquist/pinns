@@ -4,6 +4,7 @@ import time
 import torch.nn.functional as F
 
 from dynnn.models import DynNN
+from dynnn.utils import save_model
 
 
 def train(args: dict, data: dict):
@@ -84,5 +85,7 @@ def train(args: dict, data: dict):
             test_dist.std().item() / math.sqrt(test_dist.shape[0]),
         )
     )
+
+    save_model(model)
 
     return model, stats
