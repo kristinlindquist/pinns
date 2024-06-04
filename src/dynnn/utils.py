@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 import torch
 from torchdyn.numerics.odeint import odeint
 
@@ -42,14 +41,14 @@ def integrate_model(
 MODEL_BASE_DIR = sys.path[0] + "/../models"
 
 
-def save_model(model: torch.nn.Module):
+def save_model(model: torch.nn.Module, run_id: str):
     """
     Save model to disk
     """
     if not os.path.exists(MODEL_BASE_DIR):
         os.makedirs(MODEL_BASE_DIR)
 
-    file_path = f"{MODEL_BASE_DIR}/dynnn-{time.time()}.pt"
+    file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
     print("Saving model to", file_path)
     model_scripted = torch.jit.script(model)  # Export to TorchScript
     model_scripted.save(file_path)

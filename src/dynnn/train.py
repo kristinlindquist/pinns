@@ -39,6 +39,10 @@ def train(args: dict, data: dict):
     dsdt = data["dx"].clone().detach().requires_grad_().to(args.device)
     test_dsdt = data["test_dx"].clone().detach().requires_grad_().to(args.device)
 
+    run_id = time.time()
+    counter = 0
+    best_metric = float("inf")
+
     # vanilla train loop
     stats = {"train_loss": [], "test_loss": []}
     for step in range(args.total_steps + 1):
@@ -63,14 +67,25 @@ def train(args: dict, data: dict):
         test_dsdt_hat = model.forward(test_s[test_idxs])  # .detach()
         test_loss = calc_loss(test_dsdt[test_idxs], test_dsdt_hat, test_s[test_idxs])
 
-        # log
-        stats["train_loss"].append(loss.item())
-        stats["test_loss"].append(test_loss.item())
-        print(
-            "step {}, train_loss {:.4e}, test_loss {:.4e}".format(
-                step, loss.item(), test_loss.item()
+        if step % args.steps_per_epoch == 0:
+            stats["train_loss"].append(loss.item())
+            stats["test_loss"].append(test_loss.item())
+            print(
+                "step {}, train_loss {:.4e}, test_loss {:.4e}".format(
+                    step, loss.item(), test_loss.item()
+                )
             )
-        )
+            if (step / args.steps_per_epoch) >= args.min_epochs:
+                val_metric = test_loss.item()
+                if val_metric < best_metric - args.tolerance:
+                    best_metric = val_metric
+                    counter = 0
+                    save_model(model, run_id=run_id)
+                else:
+                    counter += 1
+                    if counter >= args.patience:
+                        print("Early stopping triggered. Training stopped.")
+                        break
 
     train_dsdt_hat = model.forward(s)
     train_dist = (dsdt - train_dsdt_hat) ** 2
@@ -85,7 +100,5 @@ def train(args: dict, data: dict):
             test_dist.std().item() / math.sqrt(test_dist.shape[0]),
         )
     )
-
-    save_model(model)
 
     return model, stats

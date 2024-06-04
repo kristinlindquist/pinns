@@ -74,14 +74,9 @@ class Mechanics:
                 )
 
         generator_fn = self.get_generator_fn(**function_args)
+        eom_fn = lagrangian_eom if self.system_type == "lagrangian" else hamiltonian_eom
 
-        # lagrangian
-        # TODO: model
-        if self.system_type == "lagrangian":
-            return lagrangian_eom(generator_fn, t, ps_coords)
-
-        # hamiltonian
-        return hamiltonian_eom(generator_fn, t, ps_coords)
+        return eom_fn(generator_fn, t, ps_coords, model)
 
     @multidispatch
     def get_trajectory(self, args) -> Trajectory:
