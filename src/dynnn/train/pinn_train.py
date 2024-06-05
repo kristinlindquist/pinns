@@ -4,11 +4,11 @@ import math, os, sys
 import time
 import torch.nn.functional as F
 
-from dynnn.layers.pinn import DynNN
+from dynnn.layers.pinn import PINN
 from dynnn.utils import save_model, save_stats
 
 
-def dnn_train(
+def pinn_train(
     args: dict, data: dict, plot_loss_callback: Callable | None = None
 ) -> tuple[torch.nn.Module, dict]:
     """
@@ -30,7 +30,7 @@ def dnn_train(
 
     torch.set_default_device(args.device)
 
-    model = DynNN(
+    model = PINN(
         (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
     )
     optim = torch.optim.Adam(

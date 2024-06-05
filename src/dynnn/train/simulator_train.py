@@ -5,7 +5,7 @@ from dynnn.layers.pinn import DynNN
 from dynnn.train.dnn_train import dnn_train
 
 
-def rl_train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
+def simulator_train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
     """
     Training loop for the RL model
     """

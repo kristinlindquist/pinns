@@ -36,7 +36,7 @@ class MLP(torch.nn.Module):
         return self.module(x)
 
 
-class DynNN(torch.nn.Module):
+class PINN(torch.nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
 
