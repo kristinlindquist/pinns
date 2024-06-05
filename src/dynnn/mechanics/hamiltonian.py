@@ -28,11 +28,11 @@ def hamiltonian_equation_of_motion(
     else:
         dsdt = AF.jacobian(hamiltonian_fn, ps_coords, create_graph=True)
 
-    # because (dq/dt - ∂H/∂v = 0) and (dp/dt + ∂H/∂r = 0)
-    # (and actuals are in the form of (dq/dt, dv/dt))
-    dhdr, dhdv = dsdt[:, 0], dsdt[:, 1]
-    dpdt = -dhdr
-    dqdt = dhdv
+    # because (dq/dt - ∂H/∂p = 0) and (dp/dt + ∂H/∂q = 0)
+    # we can return (∂H/∂p, -∂H/∂q) which should equal the training set (dq/dt, dv/dt)
+    dhdq, dhdp = dsdt[:, 0], dsdt[:, 1]
+    dpdt = -dhdq
+    dqdt = dhdp
     S = torch.stack([dqdt, dpdt], dim=1)
 
     return S

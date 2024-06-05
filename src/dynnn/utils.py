@@ -82,17 +82,18 @@ def load_model(model_file: str) -> torch.nn.Module:
     return model
 
 
-def remove_outliers(
+def adjust_outliers(
     data_dict: dict[str, list], threshold: float = 1e6
 ) -> dict[str, list]:
     """
-    Remove outliers from a dict of lists
+    Adjust outliers in a dict of lists
     """
 
-    def _remove(key: str, array: list):
+    def _adjust(key: str, array: list):
         median = statistics.median(array)
-        remaining = [val for val in array if abs(val - median) < threshold]
-        return remaining
+        # set the value to either the actual value, or the max we'll permit (median + threshold)
+        adjusted = [min(val, median + threshold) for val in array]
+        return adjusted
 
-    cleaned_data = {key: _remove(key, tensor) for key, tensor in data_dict.items()}
+    cleaned_data = {key: _adjust(key, tensor) for key, tensor in data_dict.items()}
     return cleaned_data
