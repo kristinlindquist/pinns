@@ -12,7 +12,8 @@ class TranslationallyInvariantLayer(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # batch_size, timepoints, n_bodies, num_vectors, n_dims
-        x_mean = x.mean(dim=2, keepdim=True)
+        # get mean for each batch, so it is a constant.
+        x_mean = x.mean(dim=(1, 2, 3, 4), keepdim=True)
 
         # Subtract the mean from each vector to ensure translation invariance
         x = (x - x_mean).reshape(x.shape[0], x.shape[1], -1)
