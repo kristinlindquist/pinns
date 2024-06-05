@@ -3,7 +3,7 @@ import torch
 from pydantic import BaseModel, ConfigDict
 
 GeneratorFunction = Callable[[torch.Tensor], torch.Tensor]
-SystemType = Literal["lagrangian", "hamiltonian"]
+GeneratorType = Literal["lagrangian", "hamiltonian"]
 
 # On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
 OdeSolver = Literal[
@@ -14,12 +14,6 @@ OdeSolver = Literal[
 class DatasetArgs(BaseModel):
     num_samples: int = 20
     test_split: float = 0.8
-
-
-class ModelArgs(BaseModel):
-    domain: tuple[int, int] = (0, 10)
-    t_span: tuple[int, int] = (0, 100)
-    system_type: SystemType = "hamiltonian"
 
 
 class Trajectory(BaseModel):
@@ -40,3 +34,6 @@ class TrajectoryArgs(BaseModel):
     odeint_rtol: float = 1e-10
     odeint_atol: float = 1e-6
     odeint_solver: OdeSolver = "tsit5"
+    domain: tuple[int, int] = (0, 10)
+    t_span: tuple[int, int] = (0, 100)
+    system_type: SystemType = "hamiltonian"

@@ -15,7 +15,7 @@ from dynnn.mechanics.hamiltonian import (
 from dynnn.types import (
     DatasetArgs,
     GeneratorFunction,
-    SystemType,
+    GeneratorType,
     Trajectory,
     TrajectoryArgs,
 )
@@ -32,7 +32,7 @@ class Mechanics:
         get_generator_fn: Callable[[Any], GeneratorFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
-        system_type: SystemType = "hamiltonian",
+        generator_type: GeneratorType = "hamiltonian",
     ):
         """
         Initialize the class
@@ -41,7 +41,7 @@ class Mechanics:
             get_generator_fn: function returning Hamiltonian function
             domain (tuple[int, int]): domain (boundary) for all dimensions
             t_span (tuple[int, int]): time span
-            system_type (SystemType): type of system (hamiltonian or lagrangian)
+            generator_type (GeneratorType): type of system (hamiltonian or lagrangian)
         """
         self.get_generator_fn = get_generator_fn
         self.domain = domain

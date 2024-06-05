@@ -49,8 +49,8 @@ def get_initial_conditions(
 def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
-    steepness: float = 1000.0,
-    width: float = 0.05,
+    steepness: float = 2000.0,
+    width: float = 0.01,
 ) -> torch.Tensor:
     """
     A conservative boundary potential that fades out smoothly.
