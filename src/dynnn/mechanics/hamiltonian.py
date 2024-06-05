@@ -1,11 +1,11 @@
 import torch
 import torch.autograd.functional as AF
 
-from dynnn.types import SystemFunction
+from dynnn.types import GeneratorFunction
 
 
 def hamiltonian_equation_of_motion(
-    hamiltonian_fn: SystemFunction,
+    hamiltonian_fn: GeneratorFunction,
     t: torch.Tensor,
     ps_coords: torch.Tensor,
     model: torch.nn.Module | None = None,
@@ -19,7 +19,7 @@ def hamiltonian_equation_of_motion(
         ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
 
     Returns:
-        torch.Tensor: time derivative of the phase space coordinates (the symplectic gradient)
+        torch.Tensor: time derivative of the phase space coordinates (in this case, the symplectic gradient)
     """
     if model is not None:
         # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims

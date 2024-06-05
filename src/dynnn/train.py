@@ -70,7 +70,7 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
 
         ### test ###
         model.eval()
-        test_idxs = torch.randperm(test_s.shape[0])[: args.batch_size]
+        test_idxs = torch.randperm(test_x.shape[0])[: args.batch_size]
         test_dxdt_hat = model.forward(test_x[test_idxs])  # .detach()
         test_loss, test_additional_loss = calc_loss(
             test_dxdt[test_idxs], test_dxdt_hat, test_x[test_idxs]

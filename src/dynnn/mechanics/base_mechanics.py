@@ -14,7 +14,7 @@ from dynnn.mechanics.hamiltonian import (
 )
 from dynnn.types import (
     DatasetArgs,
-    SystemFunction,
+    GeneratorFunction,
     SystemType,
     Trajectory,
     TrajectoryArgs,
@@ -29,7 +29,7 @@ class Mechanics:
 
     def __init__(
         self,
-        get_generator_fn: Callable[[Any], SystemFunction],
+        get_generator_fn: Callable[[Any], GeneratorFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
         system_type: SystemType = "hamiltonian",

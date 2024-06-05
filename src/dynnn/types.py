@@ -2,7 +2,7 @@ from typing import Callable, Literal
 import torch
 from pydantic import BaseModel, ConfigDict
 
-SystemFunction = Callable[[torch.Tensor], torch.Tensor]
+GeneratorFunction = Callable[[torch.Tensor], torch.Tensor]
 SystemType = Literal["lagrangian", "hamiltonian"]
 
 # On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
