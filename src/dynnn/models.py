@@ -140,6 +140,8 @@ class DynNN(torch.nn.Module):
                 create_graph=True,
             )[0]
             assert d_vector_potential is not None
+
+            # Levi-Civita tensor ensures that the curl operation is performed correctly regardless of the chosen coordinates.
             solenoidal_field = torch.einsum(
                 "ijk,...lj->...li", self.P, d_vector_potential
             )

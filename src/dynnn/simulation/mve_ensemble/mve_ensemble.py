@@ -180,7 +180,7 @@ def energy_conservation_loss(
     # Compute the difference in energy between each timepoint (dim 1)
     energy_diff = torch.abs(torch.diff(energy, dim=1)).sum(dim=1)
 
-    return energy_diff.mean()
+    return energy_diff.mean() * 100
 
 
 def mve_ensemble_h_fn(
