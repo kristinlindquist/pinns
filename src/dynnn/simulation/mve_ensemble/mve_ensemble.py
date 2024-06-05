@@ -167,12 +167,20 @@ def energy_conservation_loss(
 ) -> torch.Tensor:
     """
     Compute total energy difference of a system over time. Should be zero.
+
+    Args:
+        ps_coords (torch.Tensor): Actual phase space coords (n_bodies x 2 x n_dims)
+        ps_coords_hat (torch.Tensor): Predicted phase space coords (n_bodies x 2 x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
+        potential_fn (callable): Function that computes the potential energy given positions
     """
     r, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
     energy = calc_total_energy(r, v, masses, potential_fn)
-    energy_diff = torch.abs(torch.diff(energy, dim=1)).mean(dim=1)
 
-    return energy_diff.mean() * 3
+    # Compute the difference in energy between each timepoint (dim 1)
+    energy_diff = torch.abs(torch.diff(energy, dim=1)).sum(dim=1)
+
+    return energy_diff.mean()
 
 
 def mve_ensemble_h_fn(

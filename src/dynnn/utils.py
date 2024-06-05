@@ -1,8 +1,13 @@
 import os
 import json
+import statistics
 import sys
 import torch
 from torchdyn.numerics.odeint import odeint
+
+
+def l2_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
+    return (y_true - y_pred).pow(2).mean()
 
 
 def get_timepoints(t_span: tuple[int, int], time_scale: int = 30) -> torch.Tensor:
@@ -75,3 +80,19 @@ def load_model(model_file: str) -> torch.nn.Module:
     model = torch.jit.load(file_path)
     model.eval()
     return model
+
+
+def remove_outliers(
+    data_dict: dict[str, list], threshold: float = 1e6
+) -> dict[str, list]:
+    """
+    Remove outliers from a dict of lists
+    """
+
+    def _remove(key: str, array: list):
+        median = statistics.median(array)
+        remaining = [val for val in array if abs(val - median) < threshold]
+        return remaining
+
+    cleaned_data = {key: _remove(key, tensor) for key, tensor in data_dict.items()}
+    return cleaned_data

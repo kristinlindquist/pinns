@@ -19,7 +19,7 @@ def hamiltonian_equation_of_motion(
         ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
 
     Returns:
-        torch.Tensor: time derivative of the phase space coordinates
+        torch.Tensor: time derivative of the phase space coordinates (the symplectic gradient)
     """
     if model is not None:
         # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
@@ -28,9 +28,11 @@ def hamiltonian_equation_of_motion(
     else:
         dsdt = AF.jacobian(hamiltonian_fn, ps_coords, create_graph=True)
 
-    dhdv, dhdr = dsdt[:, 0], dsdt[:, 1]
-    dvdt = -dhdr
-    drdt = dhdv
-    S = torch.stack([dvdt, drdt], dim=1)
+    # because (dq/dt - ∂H/∂v = 0) and (dp/dt + ∂H/∂r = 0)
+    # (and actuals are in the form of (dq/dt, dv/dt))
+    dhdr, dhdv = dsdt[:, 0], dsdt[:, 1]
+    dpdt = -dhdr
+    dqdt = dhdv
+    S = torch.stack([dqdt, dpdt], dim=1)
 
     return S

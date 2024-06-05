@@ -13,15 +13,15 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
     Training loop
     """
 
-    def calc_loss(dsdt, dsdt_hat, s):
+    def calc_loss(dxdt, dxdt_hat, s):
         """
         Calculate the loss
         """
-        loss = F.mse_loss(dsdt, dsdt_hat)
+        loss = F.mse_loss(dxdt, dxdt_hat)
         addtl_loss = None
 
         if args.additional_loss is not None:
-            addtl_loss = args.additional_loss(s, s + dsdt_hat * 0.01).sum()
+            addtl_loss = args.additional_loss(s, s + dxdt_hat * 0.01).sum()
             loss += addtl_loss
 
         return loss, addtl_loss
@@ -36,10 +36,10 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
     )
 
     # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-    s = data["x"].clone().detach().requires_grad_().to(args.device)
-    test_s = data["test_x"].clone().detach().requires_grad_().to(args.device)
-    dsdt = data["dx"].clone().detach().requires_grad_().to(args.device)
-    test_dsdt = data["test_dx"].clone().detach().requires_grad_().to(args.device)
+    x = data["x"].clone().detach().requires_grad_().to(args.device)
+    test_x = data["test_x"].clone().detach().requires_grad_().to(args.device)
+    dxdt = data["dx"].clone().detach().requires_grad_().to(args.device)
+    test_dxdt = data["test_dx"].clone().detach().requires_grad_().to(args.device)
 
     run_id = time.time()
     counter = 0
@@ -56,9 +56,9 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
         ### train ###
         model.train()
         optim.zero_grad()
-        idxs = torch.randperm(s.shape[0])[: args.batch_size]
-        dsdt_hat = model.forward(s[idxs])
-        loss, additional_loss = calc_loss(dsdt[idxs], dsdt_hat, s[idxs])
+        idxs = torch.randperm(x.shape[0])[: args.batch_size]
+        dxdt_hat = model.forward(x[idxs])
+        loss, additional_loss = calc_loss(dxdt[idxs], dxdt_hat, x[idxs])
         loss.backward()
 
         # with torch.autograd.profiler.profile() as prof:
@@ -71,9 +71,9 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
         ### test ###
         model.eval()
         test_idxs = torch.randperm(test_s.shape[0])[: args.batch_size]
-        test_dsdt_hat = model.forward(test_s[test_idxs])  # .detach()
+        test_dxdt_hat = model.forward(test_x[test_idxs])  # .detach()
         test_loss, test_additional_loss = calc_loss(
-            test_dsdt[test_idxs], test_dsdt_hat, test_s[test_idxs]
+            test_dxdt[test_idxs], test_dxdt_hat, test_x[test_idxs]
         )
 
         stats["train_loss"].append(loss.item())
@@ -81,7 +81,8 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
         stats["train_additional_loss"].append(additional_loss.item())
         stats["test_additional_loss"].append(test_additional_loss.item())
 
-        if step % args.steps_per_epoch == 0:
+        if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
+            # callback & log stats for every step, until the first epoch
             if plot_loss_callback is not None:
                 plot_loss_callback(stats)
 
@@ -94,9 +95,16 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
                     test_additional_loss.item(),
                 )
             )
+
+        if step % args.steps_per_epoch == 0:
             if (step / args.steps_per_epoch) >= args.min_epochs:
+                save_stats(stats, run_id=run_id)
+
                 val_metric = test_loss.item()
                 if val_metric < best_metric - args.tolerance:
+                    print(
+                        f"Val metric improved. {val_metric} < {best_metric} - {args.tolerance}"
+                    )
                     best_metric = val_metric
                     counter = 0
                     save_model(model, run_id=run_id)
@@ -106,12 +114,10 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
                         print("Early stopping triggered. Training stopped.")
                         break
 
-    save_stats(stats, run_id=run_id)
-
-    train_dsdt_hat = model.forward(s)
-    train_dist = (dsdt - train_dsdt_hat) ** 2
-    test_dsdt_hat = model.forward(test_s)
-    test_dist = (test_dsdt - test_dsdt_hat) ** 2
+    train_dxdt_hat = model.forward(x)
+    train_dist = (dxdt - train_dxdt_hat) ** 2
+    test_dxdt_hat = model.forward(test_x)
+    test_dist = (test_dxdt - test_dxdt_hat) ** 2
 
     print(
         "Final train loss {:.4e} +/- {:.4e}\nFinal test loss {:.4e} +/- {:.4e}".format(

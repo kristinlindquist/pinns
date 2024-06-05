@@ -48,7 +48,7 @@ class DynNN(torch.nn.Module):
         self,
         input_dims: tuple[int, int, int],
         hidden_dim: int,
-        field_type: Literal["conservative", "solenoidal", "both"] = "both",
+        field_type: Literal["conservative", "solenoidal", "both", "port"] = "both",
     ):
         super(DynNN, self).__init__()
         self.input_dim = math.prod(input_dims)
@@ -76,7 +76,7 @@ class DynNN(torch.nn.Module):
 
     def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
         """
-        Neural Hamiltonian-style vector field
+        Neural vector field
 
         x size: batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
         """

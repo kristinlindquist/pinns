@@ -24,10 +24,10 @@ class ModelArgs(BaseModel):
 
 class Trajectory(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    r: torch.Tensor
-    v: torch.Tensor
-    dr: torch.Tensor
-    dv: torch.Tensor
+    q: torch.Tensor
+    p: torch.Tensor
+    dq: torch.Tensor
+    dp: torch.Tensor
     t: torch.Tensor
 
 

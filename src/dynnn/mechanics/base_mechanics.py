@@ -125,14 +125,14 @@ class Mechanics:
         # -> time_scale*t_span[1] x n_bodies x 2 x n_dims
         dsdt = torch.stack([dynamics_fn(None, dp) for dp in ivp])
         # -> time_scale*t_span[1] x n_bodies x n_dims
-        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
+        dqdt, dpdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         # -> time_scale*t_span[1] x n_bodies x 2
         r, v = ivp[:, :, 0], ivp[:, :, 1]
 
         self.log[traj_id] = None
 
-        return Trajectory(r=r, v=v, dr=drdt, dv=dvdt, t=t)
+        return Trajectory(q=q, p=p, dq=dqdt, dp=dpdt, t=t)
 
     @multidispatch
     def get_dataset(self, args, trajectory_args):
@@ -193,16 +193,16 @@ class Mechanics:
         torch.seed()
         xs, dxs, time = [], [], None
         for s in range(num_samples):
-            r, v, dr, dv, t = self.get_trajectory(trajectory_args).dict().values()
+            q, p, dq, dp, t = self.get_trajectory(trajectory_args).dict().values()
 
             if time is None:
                 time = t
 
             # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            xs.append(torch.stack([r, v], dim=2).unsqueeze(dim=0))
+            xs.append(torch.stack([q, p], dim=2).unsqueeze(dim=0))
 
             # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            dxs.append(torch.stack([dr, dv], dim=2).unsqueeze(dim=0))
+            dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
 
         # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
         data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}
