@@ -1,13 +1,14 @@
+from typing import Callable
 import torch
 import math, os, sys
 import time
 import torch.nn.functional as F
 
 from dynnn.models import DynNN
-from dynnn.utils import save_model
+from dynnn.utils import save_model, save_stats
 
 
-def train(args: dict, data: dict):
+def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
     """
     Training loop
     """
@@ -17,12 +18,13 @@ def train(args: dict, data: dict):
         Calculate the loss
         """
         loss = F.mse_loss(dsdt, dsdt_hat)
+        addtl_loss = None
 
         if args.additional_loss is not None:
-            new_loss = args.additional_loss(s, s + dsdt_hat * 0.01).sum()
-            loss += new_loss
+            addtl_loss = args.additional_loss(s, s + dsdt_hat * 0.01).sum()
+            loss += addtl_loss
 
-        return loss
+        return loss, addtl_loss
 
     torch.set_default_device(args.device)
 
@@ -44,14 +46,19 @@ def train(args: dict, data: dict):
     best_metric = float("inf")
 
     # vanilla train loop
-    stats = {"train_loss": [], "test_loss": []}
+    stats = {
+        "train_loss": [],
+        "test_loss": [],
+        "train_additional_loss": [],
+        "test_additional_loss": [],
+    }
     for step in range(args.total_steps + 1):
         ### train ###
         model.train()
         optim.zero_grad()
         idxs = torch.randperm(s.shape[0])[: args.batch_size]
         dsdt_hat = model.forward(s[idxs])
-        loss = calc_loss(dsdt[idxs], dsdt_hat, s[idxs])
+        loss, additional_loss = calc_loss(dsdt[idxs], dsdt_hat, s[idxs])
         loss.backward()
 
         # with torch.autograd.profiler.profile() as prof:
@@ -65,14 +72,26 @@ def train(args: dict, data: dict):
         model.eval()
         test_idxs = torch.randperm(test_s.shape[0])[: args.batch_size]
         test_dsdt_hat = model.forward(test_s[test_idxs])  # .detach()
-        test_loss = calc_loss(test_dsdt[test_idxs], test_dsdt_hat, test_s[test_idxs])
+        test_loss, test_additional_loss = calc_loss(
+            test_dsdt[test_idxs], test_dsdt_hat, test_s[test_idxs]
+        )
+
+        stats["train_loss"].append(loss.item())
+        stats["test_loss"].append(test_loss.item())
+        stats["train_additional_loss"].append(additional_loss.item())
+        stats["test_additional_loss"].append(test_additional_loss.item())
 
         if step % args.steps_per_epoch == 0:
-            stats["train_loss"].append(loss.item())
-            stats["test_loss"].append(test_loss.item())
+            if plot_loss_callback is not None:
+                plot_loss_callback(stats)
+
             print(
-                "step {}, train_loss {:.4e}, test_loss {:.4e}".format(
-                    step, loss.item(), test_loss.item()
+                "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
+                    step,
+                    loss.item(),
+                    additional_loss.item(),
+                    test_loss.item(),
+                    test_additional_loss.item(),
                 )
             )
             if (step / args.steps_per_epoch) >= args.min_epochs:
@@ -86,6 +105,8 @@ def train(args: dict, data: dict):
                     if counter >= args.patience:
                         print("Early stopping triggered. Training stopped.")
                         break
+
+    save_stats(stats, run_id=run_id)
 
     train_dsdt_hat = model.forward(s)
     train_dist = (dsdt - train_dsdt_hat) ** 2

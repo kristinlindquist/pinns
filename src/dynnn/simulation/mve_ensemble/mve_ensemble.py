@@ -172,7 +172,7 @@ def energy_conservation_loss(
     energy = calc_total_energy(r, v, masses, potential_fn)
     energy_diff = torch.abs(torch.diff(energy, dim=1)).mean(dim=1)
 
-    return energy_diff.mean()
+    return energy_diff.mean() * 3
 
 
 def mve_ensemble_h_fn(

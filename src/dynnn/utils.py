@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import torch
 from torchdyn.numerics.odeint import odeint
@@ -52,6 +53,18 @@ def save_model(model: torch.nn.Module, run_id: str):
     print("Saving model to", file_path)
     model_scripted = torch.jit.script(model)  # Export to TorchScript
     model_scripted.save(file_path)
+
+
+def save_stats(stats: dict, run_id: str):
+    """
+    Save model stats
+    """
+    if not os.path.exists(MODEL_BASE_DIR):
+        os.makedirs(MODEL_BASE_DIR)
+
+    file_path = f"{MODEL_BASE_DIR}/stats-dynnn-{run_id}.json"
+    print("Saving stats to", file_path)
+    json.dump(stats, open(file_path, "w"))
 
 
 def load_model(model_file: str) -> torch.nn.Module:
