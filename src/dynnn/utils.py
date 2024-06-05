@@ -83,7 +83,7 @@ def load_model(model_file: str) -> torch.nn.Module:
 
 
 def adjust_outliers(
-    data_dict: dict[str, list], threshold: float = 1e6
+    data_dict: dict[str, list], threshold: float = 1e4
 ) -> dict[str, list]:
     """
     Adjust outliers in a dict of lists
