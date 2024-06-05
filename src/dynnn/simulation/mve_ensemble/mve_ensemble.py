@@ -1,6 +1,7 @@
 from typing import overload, Callable
 from multimethod import multidispatch
 import torch
+import torch.nn.functional as F
 from functools import partial
 
 from dynnn.mechanics import Mechanics
@@ -48,24 +49,41 @@ def get_initial_conditions(
 def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
-    steepness: float = 10.0,
-    width: float = 0.15,
-):
+    steepness: float = 1000.0,
+    width: float = 0.05,
+) -> torch.Tensor:
     """
-    A conservative boundary potential that fades out smoothly
-    NOTE: energy is not perfectly conserved around this boundary
+    A conservative boundary potential that fades out smoothly.
+    NOTE: Energy is not perfectly conserved around this boundary.
+
+    Args:
+        positions (torch.Tensor): Particle position coordinates (n_bodies x n_dims).
+        boundaries (tuple[float, float]): Boundary positions (min and max) for each dimension.
+        steepness (float): Steepness of the boundary potential.
+        width (float): Width of the boundary region where the potential is applied.
+
+    Returns:
+        torch.Tensor: Total boundary potential for the given positions.
     """
+    if len(positions.shape) != 2:
+        raise ValueError("Positions must be n_bodies x n_dims")
 
-    def _boundary_potential(boundary):
-        distance = torch.abs(positions - boundary).reshape(-1)
-        mask = distance < width
-        distance[mask] = steepness * (1 - (distance[mask] / width) ** 2) ** 2
-        return distance
+    # Smoothly varying boundary potential function
+    def smooth_boundary_potential(distance, width, steepness):
+        return steepness * torch.exp(-((distance / width) ** 2))
 
-    boundary_effect = torch.sum(
-        torch.stack([_boundary_potential(b) for b in boundaries])
-    )
-    return boundary_effect
+    # Calculate distances to the minimum and maximum boundaries
+    distance_min = torch.abs(positions - boundaries[0])
+    distance_max = torch.abs(positions - boundaries[1])
+
+    # Apply smooth boundary potential
+    boundary_potential_min = smooth_boundary_potential(distance_min, width, steepness)
+    boundary_potential_max = smooth_boundary_potential(distance_max, width, steepness)
+
+    # Sum the boundary potentials across all dimensions and particles
+    total_boundary_effect = boundary_potential_min.sum() + boundary_potential_max.sum()
+
+    return total_boundary_effect
 
 
 def calc_lennard_jones_potential(
@@ -78,8 +96,8 @@ def calc_lennard_jones_potential(
     Args:
         positions (torch.Tensor): Tensor containing positions of particles
             size:
-                n_bodies x 2 or
-                n_bodies x timepoints x 2
+                n_bodies x n_dims or
+                timepoints x n_bodies x n_dims
         σ (float): "the distance at which the particle-particle potential energy V is zero"
         ε (float): "depth of the potential well"
 
@@ -88,17 +106,11 @@ def calc_lennard_jones_potential(
 
     See https://en.wikipedia.org/wiki/Lennard-Jones_potential
     """
-    n_bodies = positions.shape[0]
-    return_dim = len(positions.shape) - 2
+    distances = torch.cdist(positions, positions)
+    lj = 4 * ε * ((σ / distances) ** 12 - (σ / distances) ** 6)
+    lj.nan_to_num_(0.0)
 
-    v = 0.0
-    for i in range(n_bodies):
-        for j in range(i + 1, n_bodies):
-            r = torch.linalg.vector_norm(positions[i] - positions[j], dim=return_dim)
-            r12 = (σ / r) ** 12
-            r6 = (σ / r) ** 6
-            v += 4 * ε * (r12 - r6)
-    return v
+    return lj.sum((-1, -2)) / 2
 
 
 def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch.Tensor:
@@ -109,8 +121,8 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
     Args:
         velocities (torch.Tensor): Tensor containing xy velocities of particles
             size:
-                n_bodies x 2 or
-                n_bodies x timepoints x 2
+                n_bodies x num_dims or
+                timepoints x n_bodies x num_dims
         masses (torch.Tensor): Tensor containing masses of particles
     """
     if len(masses.shape) == 1:
@@ -118,18 +130,57 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
         masses = masses.unsqueeze(-1)
 
     # Ensure masses can broadcast correctly with velocities
-    if len(velocities.shape) == 3:
-        masses = masses.unsqueeze(1)
+    if len(velocities.shape) >= 3:
+        masses = masses.reshape(
+            *([1] * (len(velocities.shape) - 2)), masses.shape[0], 1
+        )
 
-    kinetics = 0.5 * masses * velocities**2
-    kinetic_energy = torch.sum(kinetics, dim=-1)
+    kinetic_energy = torch.sum(0.5 * masses * velocities**2, dim=-1)
 
     # Average the kinetic energies over all particles
     if kinetic_energy.dim() > 1:
         # If we have timepoints, average across all particles for each timepoint
-        return kinetic_energy.mean(dim=0)
+        return kinetic_energy.mean(dim=-1)
 
     return kinetic_energy.mean()
+
+
+def calc_total_energy(
+    q: torch.Tensor,
+    v: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn=calc_lennard_jones_potential,
+):
+    """
+    Compute the total energy of a system.
+    """
+    kinetic_energy = calc_kinetic_energy(v, masses)
+    potential_energy = potential_fn(q)
+    return kinetic_energy + potential_energy
+
+
+def energy_conservation_loss(
+    ps_coords: torch.Tensor,
+    ps_coords_hat: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn=calc_lennard_jones_potential,
+) -> torch.Tensor:
+    """
+    Compute total energy difference of a system over time. Should be zero.
+
+    Args:
+        ps_coords (torch.Tensor): Actual phase space coords (n_bodies x 2 x n_dims)
+        ps_coords_hat (torch.Tensor): Predicted phase space coords (n_bodies x 2 x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
+        potential_fn (callable): Function that computes the potential energy given positions
+    """
+    q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
+    energy = calc_total_energy(q, v, masses, potential_fn)
+
+    # Compute the difference in energy between each timepoint (dim 1)
+    energy_diff = torch.abs(torch.diff(energy, dim=1)).sum(dim=1)
+
+    return energy_diff.mean() * 100
 
 
 def mve_ensemble_h_fn(
@@ -148,11 +199,8 @@ def mve_ensemble_h_fn(
     Returns:
         torch.Tensor: Hamiltonian (Total energy) of the system.
     """
-    r, v = [s.squeeze() for s in torch.split(ps_coords, 1, dim=1)]
-    kinetic_energy = calc_kinetic_energy(v, masses)
-    potential_energy = potential_fn(r)
-
-    return kinetic_energy + potential_energy
+    r, v = ps_coords[:, 0], ps_coords[:, 1]
+    return calc_total_energy(r, v, masses, potential_fn)
 
 
 def mve_ensemble_l_fn(
@@ -169,11 +217,14 @@ def mve_ensemble_l_fn(
         v (torch.Tensor): Velocities of each particle (n_bodies x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
-    """
-    kinetic_energy = calc_kinetic_energy(v, masses)
-    potential_energy = potential_fn(r)
 
-    return kinetic_energy - potential_energy
+    Returns:
+        torch.Tensor: Lagrangian of the system.
+    """
+    T = calc_kinetic_energy(v, masses)
+    V = potential_fn(r)
+
+    return T - V
 
 
 class MveEnsembleMechanics(Mechanics):
@@ -192,15 +243,19 @@ class MveEnsembleMechanics(Mechanics):
         self.potential_fn = potential_fn
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
-        _get_function = lambda masses: partial(
-            mve_ensemble_l_fn if args.use_lagrangian else mve_ensemble_h_fn,
+        _get_generator_fn = lambda masses: partial(
+            (
+                mve_ensemble_l_fn
+                if args.system_type == "lagrangian"
+                else mve_ensemble_h_fn
+            ),
             masses=masses,
             potential_fn=self.potential_fn,
         )
 
         super(MveEnsembleMechanics, self).__init__(
-            _get_function,
+            _get_generator_fn,
             domain=args.domain,
             t_span=args.t_span,
-            use_lagrangian=args.use_lagrangian,
+            system_type=args.system_type,
         )

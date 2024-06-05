@@ -4,9 +4,13 @@ from typing import Callable
 import torch
 
 
-def visualize_trajectory(positions, num_timepoints, domain=(0, 10)):
+def visualize_trajectory(
+    positions: torch.Tensor, num_timepoints: int, domain: tuple[int, int] = (0, 10)
+):
     """
     Visualize the trajectory of particles in 3D space
+
+    Positions: (time_scale*t_span[1]) x n_bodies x n_dims
     """
     fig = plt.figure(figsize=[7, 5], dpi=100)
     ax = fig.add_subplot(projection="3d")
@@ -25,11 +29,11 @@ def visualize_trajectory(positions, num_timepoints, domain=(0, 10)):
         ax.set_ylabel("$y$")
         ax.set_zlabel("$z$")
 
-        for i in range(positions.shape[0]):
+        for i in range(positions.shape[1]):
             x, y, z = (
-                positions[i, frame, 0],
-                positions[i, frame, 1],
-                positions[i, frame, 2],
+                positions[frame, i, 0],
+                positions[frame, i, 1],
+                positions[frame, i, 2],
             )
             ax.scatter(x.item(), y.item(), z.item())
         return []

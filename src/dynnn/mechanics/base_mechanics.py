@@ -1,18 +1,23 @@
+import os, pickle
 from typing import Any, Callable, overload
 import torch
 from functools import partial
-from torchdyn.numerics.odeint import odeint
+from torchdyn.numerics.odeint import odeint, odeint_symplectic
 import torch.autograd.functional as AF
 from pydantic import BaseModel
 from multimethod import multidispatch, multimethod
 import uuid
 
 from dynnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
+from dynnn.mechanics.hamiltonian import (
+    hamiltonian_equation_of_motion as hamiltonian_eom,
+)
 from dynnn.types import (
-    SystemFunction,
-    TrajectoryArgs,
     DatasetArgs,
+    GeneratorFunction,
+    SystemType,
     Trajectory,
+    TrajectoryArgs,
 )
 from dynnn.utils import get_timepoints
 
@@ -24,24 +29,24 @@ class Mechanics:
 
     def __init__(
         self,
-        get_function: Callable[[Any], SystemFunction],
+        get_generator_fn: Callable[[Any], GeneratorFunction],
         domain: tuple[int, int],
         t_span: tuple[int, int] = (0, 10),
-        use_lagrangian: bool = False,
+        system_type: SystemType = "hamiltonian",
     ):
         """
         Initialize the class
 
         Args:
-            get_function: function returning Hamiltonian function
+            get_generator_fn: function returning Hamiltonian function
             domain (tuple[int, int]): domain (boundary) for all dimensions
             t_span (tuple[int, int]): time span
-            use_lagrangian (bool): whether to use the Lagrangian formulation
+            system_type (SystemType): type of system (hamiltonian or lagrangian)
         """
-        self.get_function = get_function
+        self.get_generator_fn = get_generator_fn
         self.domain = domain
         self.t_span = t_span
-        self.use_lagrangian = use_lagrangian
+        self.system_type = system_type
         self.log = {}
 
     def dynamics_fn(
@@ -59,32 +64,19 @@ class Mechanics:
             t: Time
             ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
             model: model to use for time derivative
-            function_args: additional arguments for the Hamiltonian function
+            function_args: additional arguments for the function
         """
         if traj_id in self.log:
             self.log[traj_id].append(t)
-            if len(self.log[traj_id]) % 100 == 0:
+            if len(self.log[traj_id]) % 500 == 0:
                 print(
                     f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})"
                 )
 
-        function = self.get_function(**function_args)
+        generator_fn = self.get_generator_fn(**function_args)
+        eom_fn = lagrangian_eom if self.system_type == "lagrangian" else hamiltonian_eom
 
-        if self.use_lagrangian:
-            return lagrangian_eom(function, t, ps_coords)
-
-        # n_bodies x 2 x n_dims
-        if model is not None:
-            # model expects batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            _ps_coords = ps_coords.unsqueeze(0).unsqueeze(0)
-            drdt, dvdt = model.time_derivative(_ps_coords).squeeze().squeeze()
-        else:
-            dsdt = AF.jacobian(function, ps_coords)  # diff than jacobian(fun, (r, v))
-            drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=1)]
-
-        S = torch.stack([dvdt, -drdt], dim=1)  # dvdt = -dHdr; drdt = dHdv
-
-        return S
+        return eom_fn(generator_fn, t, ps_coords, model)
 
     @multidispatch
     def get_trajectory(self, args) -> Trajectory:
@@ -119,7 +111,9 @@ class Mechanics:
         )
 
         t = get_timepoints(self.t_span, time_scale)
-        ivp = odeint(
+
+        solve_ivp = odeint_symplectic if args.odeint_solver == "symplectic" else odeint
+        ivp = solve_ivp(
             f=dynamics_fn,
             x=y0,
             t_span=t,
@@ -131,14 +125,14 @@ class Mechanics:
         # -> time_scale*t_span[1] x n_bodies x 2 x n_dims
         dsdt = torch.stack([dynamics_fn(None, dp) for dp in ivp])
         # -> time_scale*t_span[1] x n_bodies x n_dims
-        drdt, dvdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
+        dqdt, dpdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         # -> time_scale*t_span[1] x n_bodies x 2
-        r, v = ivp[:, :, 0], ivp[:, :, 1]
+        q, p = ivp[:, :, 0], ivp[:, :, 1]
 
         self.log[traj_id] = None
 
-        return Trajectory(r=r, v=v, dr=drdt, dv=dvdt, t=t)
+        return Trajectory(q=q, p=p, dq=dqdt, dp=dpdt, t=t)
 
     @multidispatch
     def get_dataset(self, args, trajectory_args):
@@ -158,6 +152,35 @@ class Mechanics:
     ) -> dict:
         """
         Generate a dataset of trajectories
+        (with pickle caching)
+
+        Args:
+        args.num_samples: Number of samples
+        args.test_split: Test split
+        trajectory_args: Additional arguments for the trajectory function
+        """
+        pickle_path = f"mve_ensemble_data-{self.system_type}.pkl"
+
+        if os.path.exists(pickle_path):
+            print(f"Loading {self.system_type} data from {pickle_path}")
+            with open(pickle_path, "rb") as file:
+                data = pickle.loads(file.read())
+        else:
+            print(f"Creating {self.system_type} data...")
+            data = self._get_dataset(args, trajectory_args)
+            print(f"Saving data to {pickle_path}")
+            with open(pickle_path, "wb") as file:
+                pickle.dump(data, file)
+
+        return data
+
+    def _get_dataset(
+        self,
+        args: DatasetArgs,
+        trajectory_args: TrajectoryArgs,
+    ) -> dict:
+        """
+        Generate a dataset of trajectories
 
         Args:
         args.num_samples: Number of samples
@@ -170,16 +193,16 @@ class Mechanics:
         torch.seed()
         xs, dxs, time = [], [], None
         for s in range(num_samples):
-            r, v, dr, dv, t = self.get_trajectory(trajectory_args).dict().values()
+            q, p, dq, dp, t = self.get_trajectory(trajectory_args).dict().values()
 
             if time is None:
                 time = t
 
             # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            xs.append(torch.stack([r, v], dim=2).unsqueeze(dim=0))
+            xs.append(torch.stack([q, p], dim=2).unsqueeze(dim=0))
 
             # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-            dxs.append(torch.stack([dr, dv], dim=2).unsqueeze(dim=0))
+            dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
 
         # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
         data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}

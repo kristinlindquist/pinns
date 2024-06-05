@@ -2,29 +2,32 @@ from typing import Callable, Literal
 import torch
 from pydantic import BaseModel, ConfigDict
 
-SystemFunction = Callable[[torch.Tensor], torch.Tensor]
+GeneratorFunction = Callable[[torch.Tensor], torch.Tensor]
+SystemType = Literal["lagrangian", "hamiltonian"]
 
 # On choosing an ODE solver: https://docs.sciml.ai/DiffEqDocs/stable/solvers/ode_solve/
-OdeSolver = Literal["tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieuler"]
+OdeSolver = Literal[
+    "tsit5", "dopri5", "alf", "euler", "midpoint", "rk4", "ieuler", "symplectic"
+]
 
 
 class DatasetArgs(BaseModel):
-    num_samples: int = 40
+    num_samples: int = 20
     test_split: float = 0.8
 
 
 class ModelArgs(BaseModel):
     domain: tuple[int, int] = (0, 10)
-    t_span: tuple[int, int] = (0, 30)
-    use_lagrangian: bool = False
+    t_span: tuple[int, int] = (0, 100)
+    system_type: SystemType = "hamiltonian"
 
 
 class Trajectory(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    r: torch.Tensor
-    v: torch.Tensor
-    dr: torch.Tensor
-    dv: torch.Tensor
+    q: torch.Tensor
+    p: torch.Tensor
+    dq: torch.Tensor
+    dp: torch.Tensor
     t: torch.Tensor
 
 
