@@ -146,7 +146,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
 
 def calc_total_energy(
-    r: torch.Tensor,
+    q: torch.Tensor,
     v: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
@@ -155,7 +155,7 @@ def calc_total_energy(
     Compute the total energy of a system.
     """
     kinetic_energy = calc_kinetic_energy(v, masses)
-    potential_energy = potential_fn(r)
+    potential_energy = potential_fn(q)
     return kinetic_energy + potential_energy
 
 
@@ -174,8 +174,8 @@ def energy_conservation_loss(
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
     """
-    r, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
-    energy = calc_total_energy(r, v, masses, potential_fn)
+    q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
+    energy = calc_total_energy(q, v, masses, potential_fn)
 
     # Compute the difference in energy between each timepoint (dim 1)
     energy_diff = torch.abs(torch.diff(energy, dim=1)).sum(dim=1)

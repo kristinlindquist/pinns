@@ -128,7 +128,7 @@ class Mechanics:
         dqdt, dpdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         # -> time_scale*t_span[1] x n_bodies x 2
-        r, v = ivp[:, :, 0], ivp[:, :, 1]
+        q, p = ivp[:, :, 0], ivp[:, :, 1]
 
         self.log[traj_id] = None
 

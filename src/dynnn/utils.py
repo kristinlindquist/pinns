@@ -1,4 +1,5 @@
 import os
+import math
 import json
 import statistics
 import sys
@@ -72,28 +73,30 @@ def save_stats(stats: dict, run_id: str):
     json.dump(stats, open(file_path, "w"))
 
 
-def load_model(model_file: str) -> torch.nn.Module:
+def load_model(file_or_timestamp: str) -> torch.nn.Module:
     """
     Load model from disk
     """
+    model_file = file_or_timestamp
+    if not model_file.endswith(".pt"):
+        model_file += ".pt"
+    if not model_file.startswith("dynnn-"):
+        model_file = f"dynnn-{model_file}"
+
     file_path = f"{MODEL_BASE_DIR}/{model_file}"
     model = torch.jit.load(file_path)
     model.eval()
     return model
 
 
-def adjust_outliers(
-    data_dict: dict[str, list], threshold: float = 1e4
-) -> dict[str, list]:
+def load_stats(file_or_timestamp: str) -> dict[str, list]:
     """
-    Adjust outliers in a dict of lists
+    Load stats from disk
     """
+    stats_file = file_or_timestamp
+    if not stats_file.endswith(".json"):
+        stats_file += ".json"
+    if not stats_file.startswith("stats-dynnn-"):
+        stats_file = f"stats-dynnn-{stats_file}"
 
-    def _adjust(key: str, array: list):
-        median = statistics.median(array)
-        # set the value to either the actual value, or the max we'll permit (median + threshold)
-        adjusted = [min(val, median + threshold) for val in array]
-        return adjusted
-
-    cleaned_data = {key: _adjust(key, tensor) for key, tensor in data_dict.items()}
-    return cleaned_data
+    return json.load(open(f"{MODEL_BASE_DIR}/{stats_file}"))
