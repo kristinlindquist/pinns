@@ -5,11 +5,15 @@ import time
 import torch.nn.functional as F
 
 from dynnn.layers.pinn import PINN
+from dynnn.types import PinnStats
 from dynnn.utils import save_model, save_stats
 
 
 def pinn_train(
-    args: dict, data: dict, plot_loss_callback: Callable | None = None
+    args: dict,
+    data: dict,
+    plot_loss_callback: Callable | None = None,
+    model: torch.nn.Module | None = None,
 ) -> tuple[torch.nn.Module, dict]:
     """
     Training loop for DNN
@@ -30,9 +34,11 @@ def pinn_train(
 
     torch.set_default_device(args.device)
 
-    model = PINN(
-        (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
-    )
+    if model is None:
+        model = PINN(
+            (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
+        )
+
     optim = torch.optim.Adam(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )
@@ -48,12 +54,7 @@ def pinn_train(
     best_metric = float("inf")
 
     # vanilla train loop
-    stats = {
-        "train_loss": [],
-        "test_loss": [],
-        "train_additional_loss": [],
-        "test_additional_loss": [],
-    }
+    stats = PinnStats()
     for step in range(args.total_steps + 1):
         ### train ###
         model.train()
@@ -78,10 +79,10 @@ def pinn_train(
             test_dxdt[test_idxs], test_dxdt_hat, test_x[test_idxs]
         )
 
-        stats["train_loss"].append(loss.item())
-        stats["test_loss"].append(test_loss.item())
-        stats["train_additional_loss"].append(additional_loss.item())
-        stats["test_additional_loss"].append(test_additional_loss.item())
+        stats.train_loss.append(loss.item())
+        stats.test_loss.append(test_loss.item())
+        stats.train_additional_loss.append(additional_loss.item())
+        stats.test_additional_loss.append(test_additional_loss.item())
 
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
             # callback & log stats for every step, until the first epoch

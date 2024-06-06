@@ -36,4 +36,31 @@ class TrajectoryArgs(BaseModel):
     odeint_solver: OdeSolver = "tsit5"
     domain: tuple[int, int] = (0, 10)
     t_span: tuple[int, int] = (0, 100)
-    system_type: SystemType = "hamiltonian"
+    generator_type: GeneratorType = "hamiltonian"
+
+
+class PinnStats(BaseModel):
+    train_loss: list[float] = []
+    test_loss: list[float] = []
+    train_additional_loss: list[float] = []
+    test_additional_loss: list[float] = []
+
+    @staticmethod
+    def _calc_mean(values: list[float]) -> float:
+        if len(values) == 0:
+            return 0.0
+        return math.mean(values)
+
+    @staticmethod
+    def _calc_min(values: list[float]) -> float:
+        if len(values) == 0:
+            return 0.0
+        return min(values)
+
+    @property
+    def min_train_loss(self) -> float:
+        return self._calc_min(self.train_loss)
+
+    @property
+    def min_test_loss(self) -> float:
+        return self._calc_min(self.test_loss)

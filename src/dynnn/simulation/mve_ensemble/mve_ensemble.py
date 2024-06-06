@@ -246,7 +246,7 @@ class MveEnsembleMechanics(Mechanics):
         _get_generator_fn = lambda masses: partial(
             (
                 mve_ensemble_l_fn
-                if args.system_type == "lagrangian"
+                if args.generator_type == "lagrangian"
                 else mve_ensemble_h_fn
             ),
             masses=masses,
@@ -257,5 +257,5 @@ class MveEnsembleMechanics(Mechanics):
             _get_generator_fn,
             domain=args.domain,
             t_span=args.t_span,
-            system_type=args.system_type,
+            generator_type=args.generator_type,
         )

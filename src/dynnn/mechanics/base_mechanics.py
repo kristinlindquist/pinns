@@ -46,7 +46,7 @@ class Mechanics:
         self.get_generator_fn = get_generator_fn
         self.domain = domain
         self.t_span = t_span
-        self.system_type = system_type
+        self.generator_type = generator_type
         self.log = {}
 
     def dynamics_fn(
@@ -74,7 +74,9 @@ class Mechanics:
                 )
 
         generator_fn = self.get_generator_fn(**function_args)
-        eom_fn = lagrangian_eom if self.system_type == "lagrangian" else hamiltonian_eom
+        eom_fn = (
+            lagrangian_eom if self.generator_type == "lagrangian" else hamiltonian_eom
+        )
 
         return eom_fn(generator_fn, t, ps_coords, model)
 
@@ -135,12 +137,12 @@ class Mechanics:
         return Trajectory(q=q, p=p, dq=dqdt, dp=dpdt, t=t)
 
     @multidispatch
-    def get_dataset(self, args, trajectory_args):
+    def get_dataset(self, args, trajectory_args) -> tuple[dict, int]:
         return NotImplemented
 
     @overload
     @get_dataset.register
-    def _(self, args: dict = {}, trajectory_args: dict = {}):
+    def _(self, args: dict = {}, trajectory_args: dict = {}) -> tuple[dict, int]:
         return self.get_dataset(DatasetArgs(**args), TrajectoryArgs(**trajectory_args))
 
     @overload
@@ -149,7 +151,7 @@ class Mechanics:
         self,
         args: DatasetArgs,
         trajectory_args: TrajectoryArgs,
-    ) -> dict:
+    ) -> tuple[dict, int]:
         """
         Generate a dataset of trajectories
         (with pickle caching)
@@ -159,20 +161,23 @@ class Mechanics:
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
         """
-        pickle_path = f"mve_ensemble_data-{self.system_type}.pkl"
+        start = time.time()
+        pickle_path = f"mve_ensemble_data-{self.generator_type}.pkl"
 
         if os.path.exists(pickle_path):
-            print(f"Loading {self.system_type} data from {pickle_path}")
+            print(f"Loading {self.generator_type} data from {pickle_path}")
             with open(pickle_path, "rb") as file:
                 data = pickle.loads(file.read())
         else:
-            print(f"Creating {self.system_type} data...")
+            print(f"Creating {self.generator_type} data...")
             data = self._get_dataset(args, trajectory_args)
             print(f"Saving data to {pickle_path}")
             with open(pickle_path, "wb") as file:
                 pickle.dump(data, file)
 
-        return data
+        simulation_duration = time.time() - start
+
+        return data, simulation_duration
 
     def _get_dataset(
         self,
