@@ -79,10 +79,10 @@ def pinn_train(
             test_dxdt[test_idxs], test_dxdt_hat, test_x[test_idxs]
         )
 
-        stats.train_loss.append(loss.item())
-        stats.test_loss.append(test_loss.item())
-        stats.train_additional_loss.append(additional_loss.item())
-        stats.test_additional_loss.append(test_additional_loss.item())
+        stats.train_loss.append(loss)
+        stats.test_loss.append(test_loss)
+        stats.train_additional_loss.append(additional_loss)
+        stats.test_additional_loss.append(test_additional_loss)
 
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
             # callback & log stats for every step, until the first epoch

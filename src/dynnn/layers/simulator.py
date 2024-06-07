@@ -15,4 +15,4 @@ class SimulatorModel(torch.nn.Module):
         )
 
     def forward(self, state: torch.Tensor) -> torch.Tensor:
-        return self.layers(state).clamp(min=0, max=1000)
+        return self.layers(state)

@@ -108,3 +108,32 @@ def load_stats(file_or_timestamp: str) -> dict[str, list]:
         stats_file = f"stats-dynnn-{stats_file}"
 
     return json.load(open(f"{MODEL_BASE_DIR}/{stats_file}"))
+
+
+def flatten_dict(nested_dict: dict, prefix="") -> dict:
+    """
+    Flattens a nested dictionary into a single-level dictionary.
+    """
+    flat_dict = {}
+    for key, value in nested_dict.items():
+        if isinstance(value, dict):
+            flat_dict.update(flatten_dict(value, prefix=prefix + key + "."))
+        else:
+            flat_dict[prefix + key] = value
+    return flat_dict
+
+
+def unflatten_dict(flat_dict: dict) -> dict:
+    """
+    Unflattens a single-level dictionary into a nested dictionary.
+    """
+    nested_dict = {}
+    for key, value in flat_dict.items():
+        parts = key.split(".")
+        current_dict = nested_dict
+        for part in parts[:-1]:
+            if part not in current_dict:
+                current_dict[part] = {}
+            current_dict = current_dict[part]
+        current_dict[parts[-1]] = value
+    return nested_dict

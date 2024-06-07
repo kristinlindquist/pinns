@@ -68,6 +68,9 @@ class Mechanics:
             model: model to use for time derivative
             function_args: additional arguments for the function
         """
+        if isNaN(t):
+            raise ValueError("t is NaN")
+
         if traj_id in self.log:
             self.log[traj_id].append(t)
             if len(self.log[traj_id]) % 500 == 0:
@@ -201,9 +204,9 @@ class Mechanics:
             with open(pickle_path, "wb") as file:
                 pickle.dump(data, file)
 
-        sim_duration = time.time() - start
+        runtime = time.time() - start
 
-        return data, sim_duration
+        return data, runtime
 
     def _get_dataset(
         self,
@@ -234,8 +237,6 @@ class Mechanics:
 
             # (time_scale*t_span_max) x n_bodies x 2 x n_dims
             dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
-
-        print(xs)
 
         # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
         data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}
