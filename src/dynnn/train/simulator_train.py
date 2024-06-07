@@ -5,41 +5,57 @@ import statistics as math
 
 from dynnn.layers.simulator import SimulatorModel
 from dynnn.layers.pinn import PINN
-from dynnn.layers.encoder import decode_params, flatten_dict
-from dynnn.simulation.mve_ensemble import MveEnsembleMechanics
-from dynnn.train.dnn_train import dnn_train
-from dynnn.types import ModelArgs
+from dynnn.layers.encoder import decode_params, encode_params, flatten_dict
+from dynnn.simulation.mve_ensemble import MveEnsembleMechanics, get_initial_conditions
+from dynnn.train.pinn_train import pinn_train
+from dynnn.types import GeneratorType, ModelArgs, OdeSolver, PinnStats
 
-POSSIBLE_PARAMS = {
-    "dataset_args": {
-        "num_samples": 1,
-        "test_split": 0.8,
-    },
-    "trajectory_args": {
-        "y0": y0,
-        "masses": masses,
-        "time_scale": 3,
-        "odeint_rtol": 1e-10,
-        "odeint_atol": 1e-6,
-        "odeint_solver": "tsit5",
-    },
-    "model_args": {
-        "domain": (0, 10),
-        "t_span": (0, 100),
-        "generator_type": "hamiltonian",
-    },
-}
+
+def get_initial_params(args: dict) -> dict:
+    y0, masses = get_initial_conditions(args.n_bodies, args.n_dims)
+    return {
+        "dataset_args": {
+            "num_samples": 2,
+            # "test_split": 0.8,
+        },
+        "trajectory_args": {
+            # "y0": y0,
+            # "masses": masses,
+            "n_bodies": args.n_bodies,
+            "time_scale": 3,
+            "t_span_min": 0,
+            "t_span_max": 4,
+            # "generator_type": GeneratorType.HAMILTONIAN,
+            # "odeint_rtol": 1e-10,
+            # "odeint_atol": 1e-6,
+            # "odeint_solver": OdeSolver.TSIT5,
+        },
+        "model_args": {
+            "domain_min": 0,
+            "domain_max": 10,
+        },
+    }
 
 
 class SimulatorState(BaseModel):
-    params: dict = POSSIBLE_PARAMS
+    params: dict
     stats: PinnStats = PinnStats()
-    sim_duration: float
+    sim_duration: float = 0.0
+
+    def encode(self):
+        attributes = {
+            "params": self.params,
+            "stats": self.stats.encode(),
+            "sim_duration": self.sim_duration,
+        }
+
+        return encode_params(flatten_dict(attributes))
 
 
 class SimulatorEnv:
     def __init__(
         self,
+        args: dict,
         initial_state: SimulatorState,
         pinn: torch.nn.Module,
         max_steps: int = 1000,
@@ -50,6 +66,7 @@ class SimulatorEnv:
         self.current_state = None
         self.current_step = 0
         self.prior_dist = None
+        self.args = args
 
     def reset(self) -> SimulatorState:
         self.current_state = self.initial_state
@@ -73,12 +90,13 @@ class SimulatorEnv:
         return new_state, reward, is_done
 
     def simulate_and_learn(self, action: torch.Tensor) -> SimulatorState:
-        params = {**POSSIBLE_PARAMS, **decode_params(action, POSSIBLE_PARAMS)}
-        mechanics = MveEnsembleMechanics(ModelArgs(*params["model_args"]))
+        state = decode_params(action, self.initial_state.model_dump())
+        params = state["params"]
+        mechanics = MveEnsembleMechanics(ModelArgs(**params["model_args"]))
         data, sim_duration = mechanics.get_dataset(
-            params["dataset_args"], params["trajectory_args"]
+            params.get("dataset_args", {}), params["trajectory_args"]
         )
-        _, stats = pinn_train(args, data, model=self.pinn)
+        _, stats = pinn_train(self.args, data, model=self.pinn)
         return SimulatorState(
             params=params,
             stats=stats,
@@ -101,23 +119,29 @@ class SimulatorEnv:
         return var_loss_reduction + canonical_loss_reduction + sim_reduction
 
 
-def simulator_train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
+def simulator_train(
+    args: dict, canonical_data: dict = {}, plot_loss_callback: Callable | None = None
+):
     """
     Training loop for the RL model
     """
-    total_params = len(flatten_dict(POSSIBLE_PARAMS).keys())
+    initial_state = SimulatorState(params=get_initial_params(args))
+    total_params = len(initial_state.encode())
+    print(initial_state.encode())
     sbn = SimulatorModel(state_dim=total_params, action_dim=total_params)
-    env = SimulatorEnv()
+    pinn = PINN(
+        (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
+    )
 
+    env = SimulatorEnv(args, initial_state, pinn)
     optimizer = torch.optim.Adam(sbn.parameters(), lr=args.learn_rate)
-    y0, masses = get_initial_conditions(args.n_bodies, args.n_dims)
 
     for experiment in range(args.num_experiments):
         state = env.reset()
         experiment_reward = 0
 
         for step in range(args.max_simulator_steps):
-            action = sbn(state)
+            action = sbn(state.encode())
             next_state, reward, is_done = env.step(action)
 
             # Compute the loss and update the agent

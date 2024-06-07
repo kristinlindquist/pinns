@@ -78,7 +78,7 @@ class PINN(torch.nn.Module):
         """
         Neural vector field
 
-        x size: batch_size, (time_scale*t_span[1]) x n_bodies x len([q, p]) x n_dims
+        x size: batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims
         """
         if self.use_invariant_layer:
             invariant_features = self.invariant_layer(x)
@@ -121,7 +121,7 @@ class PINN(torch.nn.Module):
             i.e. a conservative vector field is completely described by its scalar potential function
             (which is why we're looking at only scalar_potential here)
             """
-            # batch_size, (time_scale*t_span[1]) x n_bodies x (len([r, v]) * n_dims)
+            # batch_size, (time_scale*t_span_max) x n_bodies x (len([r, v]) * n_dims)
             d_scalar_potential = torch.autograd.grad(
                 [scalar_potential.sum()],
                 [x],

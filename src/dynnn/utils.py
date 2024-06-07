@@ -5,15 +5,18 @@ import statistics
 import sys
 import torch
 from torchdyn.numerics.odeint import odeint
+from typing import Sequence
 
 
 def l2_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     return (y_true - y_pred).pow(2).mean()
 
 
-def get_timepoints(t_span: tuple[int, int], time_scale: int = 30) -> torch.Tensor:
+def get_timepoints(
+    t_span_min: int, t_span_max: int, time_scale: int = 30
+) -> torch.Tensor:
     return torch.linspace(
-        t_span[0], t_span[1], int(time_scale * (t_span[1] - t_span[0]))
+        t_span_min, t_span_max, int(time_scale * (t_span_max - t_span_min))
     )
 
 
@@ -32,7 +35,12 @@ def permutation_tensor() -> torch.Tensor:
 
 
 def integrate_model(
-    model, t_span: tuple[int, int], y0: torch.Tensor, time_scale: int = 30, **kwargs
+    model,
+    t_span_min: int,
+    t_span_max: int,
+    y0: torch.Tensor,
+    time_scale: int = 30,
+    **kwargs,
 ):
     def fun(t, x):
         if x.ndim == 2:
@@ -41,7 +49,7 @@ def integrate_model(
         dx = model.forward(_x).data
         return dx
 
-    t = get_timepoints(t_span, time_scale)
+    t = get_timepoints(t_span_min, t_span_max, time_scale)
     return odeint(fun, t=t, y0=y0, **kwargs)
 
 

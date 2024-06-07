@@ -43,7 +43,7 @@ def pinn_train(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )
 
-    # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
+    # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
     x = data["x"].clone().detach().requires_grad_().to(args.device)
     test_x = data["test_x"].clone().detach().requires_grad_().to(args.device)
     dxdt = data["dx"].clone().detach().requires_grad_().to(args.device)

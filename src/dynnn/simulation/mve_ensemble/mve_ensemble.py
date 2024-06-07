@@ -5,17 +5,18 @@ import torch.nn.functional as F
 from functools import partial
 
 from dynnn.mechanics import Mechanics
-from dynnn.types import ModelArgs
+from dynnn.types import GeneratorType, ModelArgs
 
 
 def get_initial_conditions(
     n_bodies: int,
-    n_dims: int,
+    n_dims: int = 3,
     width: int = 4,
     height: int = 4,
     depth: int = 4,
     temp: float = 5.0,
     offset: int = 2,
+    masses: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generate initial conditions for a system of particles.
@@ -28,7 +29,11 @@ def get_initial_conditions(
         temp (float): Temperature of the system
     """
     # initialize masses
-    masses = torch.ones(n_bodies).requires_grad_()
+    if masses is None:
+        masses = torch.ones(n_bodies).requires_grad_()
+
+    if masses.shape[0] != n_bodies:
+        raise ValueError("Masses must be the same length as the number of bodies")
 
     # initialize positions
     possible_dims = [width, height, depth]
@@ -237,16 +242,18 @@ class MveEnsembleMechanics(Mechanics):
         # - Lennard-Jones potential
         # - Boundary potential
         def potential_fn(positions: torch.Tensor):
-            bc_pe = calc_boundary_potential(positions, boundaries=args.domain)
+            bc_pe = calc_boundary_potential(
+                positions, boundaries=(args.domain_min, args.domain_max)
+            )
             return calc_lennard_jones_potential(positions) + bc_pe
 
         self.potential_fn = potential_fn
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
-        _get_generator_fn = lambda masses: partial(
+        _get_generator_fn = lambda masses, generator_type: partial(
             (
                 mve_ensemble_l_fn
-                if args.generator_type == "lagrangian"
+                if generator_type == GeneratorType.LAGRANGIAN
                 else mve_ensemble_h_fn
             ),
             masses=masses,
@@ -255,7 +262,7 @@ class MveEnsembleMechanics(Mechanics):
 
         super(MveEnsembleMechanics, self).__init__(
             _get_generator_fn,
-            domain=args.domain,
-            t_span=args.t_span,
-            generator_type=args.generator_type,
+            get_initial_conditions=get_initial_conditions,
+            domain_min=args.domain_min,
+            domain_max=args.domain_max,
         )

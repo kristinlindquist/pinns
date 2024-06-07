@@ -17,6 +17,7 @@ from dynnn.types import (
     DatasetArgs,
     GeneratorFunction,
     GeneratorType,
+    OdeSolver,
     Trajectory,
     TrajectoryArgs,
 )
@@ -31,29 +32,29 @@ class Mechanics:
     def __init__(
         self,
         get_generator_fn: Callable[[Any], GeneratorFunction],
-        domain: tuple[int, int],
-        t_span: tuple[int, int] = (0, 10),
-        generator_type: GeneratorType = "hamiltonian",
+        get_initial_conditions: Callable[[int, Any], tuple[torch.Tensor, torch.Tensor]],
+        domain_min: int = 0,
+        domain_max: int = 10,
     ):
         """
         Initialize the class
 
         Args:
             get_generator_fn: function returning Hamiltonian function
-            domain (tuple[int, int]): domain (boundary) for all dimensions
-            t_span (tuple[int, int]): time span
-            generator_type (GeneratorType): type of system (hamiltonian or lagrangian)
+            domain_min (int): minimum domain value
+            domain_max (int): maximum domain value
         """
         self.get_generator_fn = get_generator_fn
-        self.domain = domain
-        self.t_span = t_span
-        self.generator_type = generator_type
+        self.get_initial_conditions = get_initial_conditions
+        self.domain_min = domain_min
+        self.domain_max = domain_max
         self.log = {}
 
     def dynamics_fn(
         self,
         t: torch.Tensor,
         ps_coords: torch.Tensor,
+        generator_type: GeneratorType,
         model: torch.nn.Module | None = None,
         function_args: dict = {},
         traj_id: str = "",
@@ -74,9 +75,13 @@ class Mechanics:
                     f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})"
                 )
 
-        generator_fn = self.get_generator_fn(**function_args)
+        generator_fn = self.get_generator_fn(
+            **function_args, generator_type=generator_type
+        )
         eom_fn = (
-            lagrangian_eom if self.generator_type == "lagrangian" else hamiltonian_eom
+            lagrangian_eom
+            if generator_type == GeneratorType.LAGRANGIAN
+            else hamiltonian_eom
         )
 
         return eom_fn(generator_fn, t, ps_coords, model)
@@ -97,40 +102,55 @@ class Mechanics:
         Get a trajectory
 
         Args:
-            args.y0: Initial conditions
-            args.masses: Masses
+            args.n_bodies: number of bodies (optional if y0 is provided)
+            args.n_dims: number of dimensions (optional, default=3)
+            args.y0: Initial conditions (optional; must be provided with masses)
+            args.masses: Masses of the bodies (optional; must be provided with y0)
+            args.t_span_min: Minimum time span
+            args.t_span_max: Maximum time span
+            args.odeint_solver: ODE solver
+            args.odeint_rtol: Relative tolerance
+            args.odeint_atol: Absolute tolerance
+            args.generator_type: Generator type
             args.time_scale: Time scale
             args.model: Model to use for time derivative (optional)
         """
+        if args.y0 is None:
+            y0, masses = self.get_initial_conditions(args.n_bodies, masses=args.masses)
+        elif args.masses is not None:
+            y0, masses = args.y0, args.masses
+
         traj_id = uuid.uuid4().hex
         self.log[traj_id] = []
 
-        y0, time_scale = args.y0, args.time_scale
         dynamics_fn = partial(
             self.dynamics_fn,
             model=args.model,
-            function_args={"masses": args.masses},
+            generator_type=args.generator_type,
+            function_args={"masses": masses},
             traj_id=traj_id,
         )
 
-        t = get_timepoints(self.t_span, time_scale)
+        t = get_timepoints(args.t_span_min, args.t_span_max, args.time_scale)
 
-        solve_ivp = odeint_symplectic if args.odeint_solver == "symplectic" else odeint
+        solve_ivp = (
+            odeint_symplectic if args.odeint_solver == OdeSolver.SYMPLECTIC else odeint
+        )
         ivp = solve_ivp(
             f=dynamics_fn,
             x=y0,
             t_span=t,
-            solver=args.odeint_solver,
+            solver=args.odeint_solver.name.lower(),
             rtol=args.odeint_rtol,
             atol=args.odeint_atol,
         )[1]
 
-        # -> time_scale*t_span[1] x n_bodies x 2 x n_dims
+        # -> time_scale*t_span_max x n_bodies x 2 x n_dims
         dsdt = torch.stack([dynamics_fn(None, dp) for dp in ivp])
-        # -> time_scale*t_span[1] x n_bodies x n_dims
+        # -> time_scale*t_span_max x n_bodies x n_dims
         dqdt, dpdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
-        # -> time_scale*t_span[1] x n_bodies x 2
+        # -> time_scale*t_span_max x n_bodies x 2
         q, p = ivp[:, :, 0], ivp[:, :, 1]
 
         self.log[traj_id] = None
@@ -163,14 +183,19 @@ class Mechanics:
         trajectory_args: Additional arguments for the trajectory function
         """
         start = time.time()
-        pickle_path = f"mve_ensemble_data-{self.generator_type}.pkl"
+        filename_parts = [
+            args.filename,
+            trajectory_args.filename,
+        ]
+
+        pickle_path = f"mve_data-{'-'.join(filename_parts)}.pkl"
 
         if os.path.exists(pickle_path):
-            print(f"Loading {self.generator_type} data from {pickle_path}")
+            print(f"Loading data from {pickle_path}")
             with open(pickle_path, "rb") as file:
                 data = pickle.loads(file.read())
         else:
-            print(f"Creating {self.generator_type} data...")
+            print(f"Creating data... ({pickle_path})")
             data = self._get_dataset(args, trajectory_args)
             print(f"Saving data to {pickle_path}")
             with open(pickle_path, "wb") as file:
@@ -204,13 +229,15 @@ class Mechanics:
             if time is None:
                 time = t
 
-            # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
+            # (time_scale*t_span_max) x n_bodies x 2 x n_dims
             xs.append(torch.stack([q, p], dim=2).unsqueeze(dim=0))
 
-            # (time_scale*t_span[1]) x n_bodies x 2 x n_dims
+            # (time_scale*t_span_max) x n_bodies x 2 x n_dims
             dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
 
-        # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
+        print(xs)
+
+        # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
         data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}
 
         # make a train/test split
