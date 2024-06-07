@@ -5,7 +5,7 @@ import statistics as math
 
 from dynnn.layers.simulator import SimulatorModel
 from dynnn.layers.pinn import PINN
-from dynnn.layers.encoder import decode_params, encode_params, flatten_dict
+from dynnn.layers.encoder import encode_params, flatten_dict, unflatten_params
 from dynnn.simulation.mve_ensemble import MveEnsembleMechanics, get_initial_conditions
 from dynnn.train.pinn_train import pinn_train
 from dynnn.types import GeneratorType, ModelArgs, OdeSolver, PinnStats, SimulatorParams
@@ -14,28 +14,26 @@ from dynnn.types import GeneratorType, ModelArgs, OdeSolver, PinnStats, Simulato
 def get_initial_params(args: dict) -> SimulatorParams:
     y0, masses = get_initial_conditions(args.n_bodies, args.n_dims)
     return SimulatorParams(
-        **{
-            "dataset_args": {
-                "num_samples": 2,
-                "test_split": 0.8,
-            },
-            "trajectory_args": {
-                # "y0": y0,
-                # "masses": masses,
-                "n_bodies": args.n_bodies,
-                "time_scale": 3,
-                "t_span_min": 0,
-                "t_span_max": 4,
-                "generator_type": GeneratorType.HAMILTONIAN,
-                # "odeint_rtol": 1e-10,
-                # "odeint_atol": 1e-6,
-                # "odeint_solver": OdeSolver.TSIT5,
-            },
-            "model_args": {
-                "domain_min": 0,
-                "domain_max": 10,
-            },
-        }
+        dataset_args={
+            "num_samples": 2,
+            "test_split": 0.8,
+        },
+        trajectory_args={
+            # "y0": y0,
+            # "masses": masses,
+            "n_bodies": args.n_bodies,
+            "time_scale": 3,
+            "t_span_min": 0,
+            "t_span_max": 4,
+            "generator_type": GeneratorType.HAMILTONIAN,
+            # "odeint_rtol": 1e-10,
+            # "odeint_atol": 1e-6,
+            # "odeint_solver": OdeSolver.TSIT5,
+        },
+        model_args={
+            "domain_min": 0,
+            "domain_max": 10,
+        },
     )
 
 
@@ -55,11 +53,11 @@ class SimulatorState(BaseModel):
 
     @classmethod
     def load(cls, encoded: dict, template_params: dict) -> "SimulatorParams":
-        decoded = decode_params(encoded, template_params)
+        tensor_dict = unflatten_params(encoded, template_params)
         return cls(
-            params=SimulatorParams.load(decoded["params"]),
-            stats=decoded.get("stats", {}),
-            sim_duration=decoded.get("sim_duration", 0.0),
+            params=SimulatorParams.load(tensor_dict["params"]),
+            stats=tensor_dict.get("stats", {}),
+            sim_duration=tensor_dict.get("sim_duration", 0.0),
         )
 
 
@@ -100,11 +98,9 @@ class SimulatorEnv:
 
         return penalty
 
-    def step(self, action: torch.Tensor) -> tuple[SimulatorState, float, bool]:
-        _action = SimulatorState.load(action, self.initial_state.model_dump())
-
+    def step(self, action: SimulatorState) -> tuple[SimulatorState, float, bool]:
         # Apply the action (parameter configuration) to the simulator
-        new_state = self.simulate(_action)
+        new_state = self.simulate(action)
 
         # Compute the reward based on the state transition
         reward = self.reward(self.current_state, new_state)
@@ -171,7 +167,9 @@ def simulator_train(
 
         for step in range(args.max_simulator_steps):
             action = sbn(state.encode())
-            next_state, reward, is_done = env.step(action)
+
+            valid_action = SimulatorState.load(action, initial_state.model_dump())
+            next_state, reward, is_done = env.step(valid_action)
 
             loss = -reward
             optimizer.zero_grad()

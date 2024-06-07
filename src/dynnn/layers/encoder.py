@@ -23,16 +23,6 @@ def encode_value(value) -> int | float:
     raise ValueError(f"Unsupported value type: {type(value)}")
 
 
-def decode_value(value):
-    """
-    Decodes a value from a tensor or keeps it unchanged.
-    """
-    if isinstance(value, torch.Tensor):
-        return value.item()
-    else:
-        return value
-
-
 def encode_params(params: dict) -> torch.Tensor:
     """
     Encodes a nested dictionary of params into a tensor.
@@ -44,14 +34,14 @@ def encode_params(params: dict) -> torch.Tensor:
     return params_tensor
 
 
-def decode_params(params_tensor: torch.Tensor, params_template: dict) -> dict:
+def unflatten_params(
+    params_tensor: torch.Tensor, params_template: dict
+) -> dict[str, torch.Tensor]:
     """
     Decodes a tensor into a nested dictionary of params.
     """
     decoded_values = params_tensor.split(split_size=1)
-    flat_params = {
-        key: decode_value(val)
-        for key, val in zip(flatten_dict(params_template).keys(), decoded_values)
-    }
-    nested_params = unflatten_dict(flat_params)
-    return nested_params
+    flat_tensor_params = dict(zip(flatten_dict(params_template).keys(), decoded_values))
+    nested_tensor_params = unflatten_dict(flat_tensor_params)
+
+    return nested_tensor_params

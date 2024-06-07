@@ -1,13 +1,45 @@
-from typing import Any, Callable, Literal
+from typing import Annotated, Any, Callable, Literal
 import torch
-from pydantic import BaseModel, ConfigDict, Field, model_validator, validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+    validator,
+)
+from pydantic.functional_validators import AfterValidator
 from enum import Enum
-from dynnn.utils import unflatten_dict
 
 GeneratorFunction = Callable[[torch.Tensor], torch.Tensor]
 InitialConditionsFunction = Callable[
     [int, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
 ]
+
+
+def float_tensor(value) -> float | torch.Tensor:
+    if isinstance(value, float):
+        return value
+
+    if isinstance(value, torch.Tensor):
+        return torch.clamp(value, min=cls.ge, max=cls.le).item()
+
+    raise ValueError(f"Unsupported value type: {type(value)}")
+
+
+FloatTensor = Annotated[float, AfterValidator(float_tensor)]
+
+
+def long_tensor(value) -> int | torch.Tensor:
+    if isinstance(value, int):
+        return value
+
+    if isinstance(value, torch.Tensor):
+        return torch.clamp(value, min=cls.ge, max=cls.le).item()
+
+    raise ValueError(f"Unsupported value type: {type(value)}")
+
+
+LongTensor = Annotated[int, AfterValidator(long_tensor)]
 
 
 def rl_param(attr):
@@ -74,78 +106,40 @@ class HasSimulatorParams(BaseModel):
 
 
 class ModelArgs(HasSimulatorParams):
-    domain_min: int = Field(0, decorator=rl_param)
-    domain_max: int = Field(10, decorator=rl_param)
-
-    @validator("domain_min")
-    def domain_min_check(cls, v):
-        return round(v, 0)
+    domain_min: LongTensor = Field(0, decorator=rl_param, ge=-1000, le=1000)
+    domain_max: LongTensor = Field(10, decorator=rl_param)
 
     @validator("domain_max")
-    def domain_domain_check(cls, v):
-        return round(v, 0)
+    def domain_max_gt_min(cls, domain_max, values, **kwargs):
+        if domain_max <= values.get("domain_min"):
+            return domain_max + (values.get("domain_min") - domain_max) + 1
+        return domain_max
 
 
 class DatasetArgs(HasSimulatorParams):
-    num_samples: int = Field(2, decorator=rl_param)
-    test_split: float = 0.8
-
-    @validator("num_samples")
-    def num_samples_check(cls, v):
-        if v < 1:
-            return 1
-        return round(v, 0)
-
-    @validator("test_split")
-    def test_split_check(cls, v):
-        return round(v, 2)
+    num_samples: int | torch.Tensor = Field(2, decorator=rl_param, ge=1, le=1000)
+    test_split: float | torch.Tensor = Field(0.8, ge=0.1, le=0.9)
 
 
 class TrajectoryArgs(HasSimulatorParams):
     y0: torch.Tensor | None = None
     masses: torch.Tensor | None = None
-    n_bodies: int | None = Field(None, decorator=rl_param)
-    n_dims: int = Field(3, decorator=rl_param)
-    time_scale: int = Field(3, decorator=rl_param)
+    n_bodies: LongTensor | None = Field(None, decorator=rl_param, ge=1, le=10000)
+    n_dims: LongTensor = Field(3, decorator=rl_param, ge=1, le=6)
+    time_scale: LongTensor = Field(3, decorator=rl_param, ge=1, le=1000)
     model: torch.nn.Module | None = None
-    odeint_rtol: float = Field(1e-10, decorator=rl_param)
-    odeint_atol: float = Field(1e-6, decorator=rl_param)
+    odeint_rtol: FloatTensor = Field(1e-10, decorator=rl_param, ge=1e-12, le=1e-3)
+    odeint_atol: FloatTensor = Field(1e-6, decorator=rl_param, ge=1e-12, le=1e-3)
     odeint_solver: OdeSolver = OdeSolver.TSIT5
-    t_span_min: int = Field(0, decorator=rl_param)
-    t_span_max: int = Field(3, decorator=rl_param)
+    t_span_min: LongTensor = Field(0, decorator=rl_param, ge=0, le=1000)
+    t_span_max: LongTensor = Field(3, decorator=rl_param)
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
-    @validator("n_bodies")
-    def n_bodies_check(cls, v):
-        if v < 1:
-            return 1
-        return round(v, 0)
-
-    @validator("n_dims")
-    def n_dims_check(cls, v):
-        if v < 1:
-            return 1
-        return round(v, 0)
-
-    @validator("time_scale")
-    def time_scale_check(cls, v):
-        return round(v, 0)
-
-    @validator("odeint_rtol")
-    def odeint_rtol_check(cls, v):
-        return round(v, 0)
-
-    @validator("odeint_atol")
-    def odeint_atol_check(cls, v):
-        return round(v, 0)
-
-    @validator("t_span_min")
-    def t_span_min_check(cls, v):
-        return round(v, 0)
-
     @validator("t_span_max")
-    def t_span_max_check(cls, v):
-        return round(v, 0)
+    def t_span_max_gt_min(cls, t_span_max, values, **kwargs):
+        if t_span_max <= values["t_span_min"]:
+            return t_span_max + (values["t_span_min"] - t_span_max) + 1
+        return t_span_max
 
     @model_validator(mode="before")
     def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:
@@ -188,14 +182,11 @@ class SimulatorParams(BaseModel):
         }
 
     @staticmethod
-    def load(encoded: dict) -> "SimulatorParams":
-        dataset_args = DatasetArgs.decode_from_rl(encoded["dataset_args"])
-        trajectory_args = TrajectoryArgs.decode_from_rl(encoded["trajectory_args"])
-        model_args = ModelArgs.decode_from_rl(encoded.get("model_args", {}))
+    def load(encoded: dict[str, torch.Tensor]) -> "SimulatorParams":
         return SimulatorParams(
-            dataset_args=dataset_args,
-            trajectory_args=trajectory_args,
-            model_args=model_args,
+            dataset_args=DatasetArgs.decode_from_rl(encoded["dataset_args"]),
+            trajectory_args=TrajectoryArgs.decode_from_rl(encoded["trajectory_args"]),
+            model_args=ModelArgs.decode_from_rl(encoded.get("model_args", {})),
         )
 
 
