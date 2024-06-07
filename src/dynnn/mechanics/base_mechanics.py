@@ -175,9 +175,9 @@ class Mechanics:
             with open(pickle_path, "wb") as file:
                 pickle.dump(data, file)
 
-        simulation_duration = time.time() - start
+        sim_duration = time.time() - start
 
-        return data, simulation_duration
+        return data, sim_duration
 
     def _get_dataset(
         self,

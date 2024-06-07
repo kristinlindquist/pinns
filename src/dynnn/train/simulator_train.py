@@ -34,7 +34,7 @@ POSSIBLE_PARAMS = {
 class SimulatorState(BaseModel):
     params: dict = POSSIBLE_PARAMS
     stats: PinnStats = PinnStats()
-    simulation_duration: float
+    sim_duration: float
 
 
 class SimulatorEnv:
@@ -75,14 +75,14 @@ class SimulatorEnv:
     def simulate_and_learn(self, action: torch.Tensor) -> SimulatorState:
         params = {**POSSIBLE_PARAMS, **decode_params(action, POSSIBLE_PARAMS)}
         mechanics = MveEnsembleMechanics(ModelArgs(*params["model_args"]))
-        data, simulation_duration = mechanics.get_dataset(
+        data, sim_duration = mechanics.get_dataset(
             params["dataset_args"], params["trajectory_args"]
         )
         _, stats = pinn_train(args, data, model=self.pinn)
         return SimulatorState(
             params=params,
             stats=stats,
-            simulation_duration=simulation_duration,
+            sim_duration=sim_duration,
         )
 
     def reward(self, old_state: SimulatorState, new_state: SimulatorState) -> float:
@@ -92,13 +92,13 @@ class SimulatorEnv:
         - Canonical loss
         - Computational cost
         """
-        vol_diff = old_state.stats.min_train_loss - new_state.stats.min_train_loss
-        canonical_loss_diff = 0  # TODO
-        sim_duration_diff = (
-            old_state.simulation_duration - new_state.simulation_duration
-        ) * 100
+        new_stats, old_stats = new_state.stats, old_state.stats
 
-        return vol_diff + canonical_loss_diff + sim_duration_diff
+        var_loss_reduction = old_stats.min_train_loss - new_stats.min_train_loss
+        sim_reduction = (old_state.sim_duration - new_state.sim_duration) * 100
+        canonical_loss_reduction = 0  # TODO
+
+        return var_loss_reduction + canonical_loss_reduction + sim_reduction
 
 
 def simulator_train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
@@ -132,4 +132,4 @@ def simulator_train(args: dict, data: dict, plot_loss_callback: Callable | None 
             if is_done:
                 break
 
-        print(f"experiment {experiment + 1}: Reward = {experiment_reward:.2f}")
+        print(f"Experiment {experiment + 1}: Reward = {experiment_reward:.2f}")
