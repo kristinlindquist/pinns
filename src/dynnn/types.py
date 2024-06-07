@@ -11,6 +11,12 @@ OdeSolver = Literal[
 ]
 
 
+class ModelArgs(BaseModel):
+    domain: tuple[int, int] = (0, 10)
+    t_span: tuple[int, int] = (0, 100)
+    generator_type: GeneratorType = "hamiltonian"
+
+
 class DatasetArgs(BaseModel):
     num_samples: int = 20
     test_split: float = 0.8
@@ -34,9 +40,6 @@ class TrajectoryArgs(BaseModel):
     odeint_rtol: float = 1e-10
     odeint_atol: float = 1e-6
     odeint_solver: OdeSolver = "tsit5"
-    domain: tuple[int, int] = (0, 10)
-    t_span: tuple[int, int] = (0, 100)
-    generator_type: GeneratorType = "hamiltonian"
 
 
 class PinnStats(BaseModel):

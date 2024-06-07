@@ -50,7 +50,7 @@ class PINN(torch.nn.Module):
         hidden_dim: int,
         field_type: Literal["conservative", "solenoidal", "both", "port"] = "both",
     ):
-        super(DynNN, self).__init__()
+        super(PINN, self).__init__()
         self.input_dim = math.prod(input_dims)
         self.P = permutation_tensor()  # Levi-Civita permutation tensor
         self.M = torch.nn.Parameter(torch.randn(self.input_dim, self.input_dim))
