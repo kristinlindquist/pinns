@@ -5,7 +5,7 @@ import time
 import torch.nn.functional as F
 
 from dynnn.layers.pinn import PINN
-from dynnn.types import PinnStats, TrainingArgs
+from dynnn.types import PinnStats, PinnTrainingArgs
 from dynnn.utils import save_model
 
 
@@ -20,7 +20,7 @@ def default_loss_fn(dxdt, dxdt_hat, s, masses):
 
 
 def train_pinn(
-    args: TrainingArgs,
+    args: PinnTrainingArgs,
     data: dict,
     model: torch.nn.Module,
     plot_loss_callback: Callable | None = None,

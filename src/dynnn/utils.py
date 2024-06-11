@@ -182,3 +182,11 @@ def unflatten_dict(flat_dict: dict) -> dict:
             current_dict = current_dict[part]
         current_dict[parts[-1]] = value
     return nested_dict
+
+
+def coerce_int(value: Any, allow_none: bool = False) -> int | None:
+    if value is None:
+        if allow_none:
+            return None
+        return 0
+    return int(value)

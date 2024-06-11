@@ -2,7 +2,7 @@
 Various experiments with PINNs in the vague direction of molecular dynamics simulation.
 
 ### Notebooks
-[Simple MVE Ensemble](src/dynnn/simulation/mve_ensemble/run.ipynb) (WIP!)
+[MVE Ensemble with RL simulator param search](src/dynnn/simulation/mve_ensemble/run.ipynb) (WIP!)
 
 ![mve_ensemble](https://github.com/kristinlindquist/pinns/assets/9382486/8a06b6df-d560-47a1-9234-5b5d1361d115)
 

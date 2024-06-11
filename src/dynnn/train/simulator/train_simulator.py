@@ -5,10 +5,9 @@ import statistics as math
 from dynnn.layers.parameter_search import ParameterSearchModel
 from dynnn.layers.pinn import PINN
 from dynnn.train.train_pinn import train_pinn
-from dynnn.types import SimulatorParams
 
 from .environment import SimulatorEnv
-from .types import SimulatorState
+from .types import SimulatorArgs, SimulatorState
 
 
 def train_simulator(
@@ -23,7 +22,7 @@ def train_simulator(
     """
     # Initialize the simulator
 
-    initial_state = SimulatorState(params=SimulatorParams())
+    initial_state = SimulatorState(params=SimulatorArgs())
 
     # Initialize the simulator model
     psm = ParameterSearchModel(

@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from functools import partial
 
 from dynnn.mechanics import Mechanics
-from dynnn.types import GeneratorType, ModelArgs
+from dynnn.types import GeneratorType, PinnModelArgs
 
 
 def get_initial_conditions(
@@ -233,7 +233,7 @@ class MveEnsembleMechanics(Mechanics):
     Mechanics for an MVE ensemble.
     """
 
-    def __init__(self, args: ModelArgs = ModelArgs()):
+    def __init__(self, args: PinnModelArgs = PinnModelArgs()):
         # potential energy function
         # - Lennard-Jones potential
         # - Boundary potential

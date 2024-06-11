@@ -6,7 +6,7 @@ from itertools import permutations
 import math
 
 from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
-from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, ModelArgs
+from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs
 from dynnn.utils import permutation_tensor
 
 
@@ -21,7 +21,7 @@ class PINN(nn.Module):
     def __init__(
         self,
         input_dims: tuple[int, int, int],
-        args: ModelArgs,
+        args: PinnModelArgs,
     ):
         super(PINN, self).__init__()
         self.input_dim = math.prod(input_dims)
