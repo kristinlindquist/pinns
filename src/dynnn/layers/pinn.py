@@ -7,15 +7,18 @@ import math
 
 from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
 from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs, VectorField
-from dynnn.utils import permutation_tensor
+
+from .utils import permutation_tensor
 
 
 class PINN(nn.Module):
     """
-    Learn arbitrary vector fields that are sums of conservative and solenoidal fields
+    Physics-Informed Neural Network (PINN) for learning arbitrary vector fields.
 
     TODO:
     - dimensionality of permutation_tensor
+    - use_invariant_layer
+    - Port-Hamiltonian systems (Skew)
     """
 
     def __init__(

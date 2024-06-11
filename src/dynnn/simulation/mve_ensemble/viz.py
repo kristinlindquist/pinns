@@ -1,3 +1,7 @@
+"""
+Visualization helpers for MVE ensemble
+"""
+
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from typing import Callable
@@ -11,6 +15,17 @@ def visualize_trajectory(
     Visualize the trajectory of particles in 3D space
 
     Positions: (time_scale*t_span[1]) x n_bodies x n_dims
+
+    Args:
+        positions (torch.Tensor): Tensor containing xy positions of particles
+            size:
+                n_bodies x num_dims or
+                timepoints x n_bodies x num_dims
+        num_timepoints (int): Number of timepoints
+        domain (tuple[int, int]): Tuple containing the domain limits
+
+    Returns:
+        animation object
     """
     fig = plt.figure(figsize=[7, 5], dpi=100)
     ax = fig.add_subplot(projection="3d")

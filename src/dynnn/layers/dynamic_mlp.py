@@ -23,6 +23,7 @@ class DynamicallySizedNetwork(nn.Module):
         self.dynamic_range = dynamic_range
         self.dynamic_dim = dynamic_dim
 
+        # input/output layers for each permitted size of the dynamic dimension
         self.input_layers = nn.ModuleList(
             [
                 nn.Linear(dynamic_input_size * dynamic_multiplier, canonical_input_dim)
@@ -30,6 +31,7 @@ class DynamicallySizedNetwork(nn.Module):
             ]
         )
 
+        # core canonical model
         self.canonical_model = nn.Sequential(
             nn.Linear(canonical_input_dim, hidden_dim),
             nn.Tanh(),
@@ -38,6 +40,7 @@ class DynamicallySizedNetwork(nn.Module):
             nn.Linear(hidden_dim, canonical_output_dim),
         )
 
+        # output layers for each permitted size of the dynamic dimension
         self.output_layers = nn.ModuleList(
             [
                 nn.Linear(
@@ -57,7 +60,15 @@ class DynamicallySizedNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        x.shape: batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims
+        Forward pass through the dynamically sized network.
+
+        - feed x through the dynamic input layer corresponding to the size of the dynamic dimension
+            (e.g. 10 if n_bodies=10)
+        - send the output through the canonical model
+        - feed the output through the dynamic output layer corresponding to the size of the dynamic dimension
+
+        Args:
+            x (torch.Tensor): input tensor (batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims)
         """
         # get the index for the dynamic layer
         dynamic_index = self.get_dynamic_index(x)

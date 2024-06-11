@@ -1,11 +1,10 @@
-import time
-from typing import Any, Callable, overload
-import torch
 from functools import partial
-from torchdyn.numerics.odeint import odeint, odeint_symplectic
-import torch.autograd.functional as AF
+from multimethod import multidispatch
 from pydantic import BaseModel
-from multimethod import multidispatch, multimethod
+import time
+import torch
+import torch.autograd.functional as AF
+from typing import Any, Callable, overload
 import uuid
 
 from dynnn.mechanics.lagrangian import lagrangian_equation_of_motion as lagrangian_eom
@@ -16,11 +15,14 @@ from dynnn.types import (
     DatasetArgs,
     GeneratorFunction,
     GeneratorType,
-    OdeSolver,
+    OdeSolverType,
     Trajectory,
     TrajectoryArgs,
 )
-from dynnn.utils import get_timepoints, load_or_create_data
+from dynnn.utils import load_or_create_data
+
+
+from .utils import get_timepoints
 
 
 class Mechanics:
@@ -69,6 +71,10 @@ class Mechanics:
             model: model to use for time derivative
             function_args: additional arguments for the function
             traj_id: trajectory ID for logging
+
+        Returns:
+            time derivative of the phase space coordinates (n_bodies x 2 x n_dims)
+            based on the specified generator function & equations of motion
         """
         if traj_id in self.log:
             self.log[traj_id].append(t)
@@ -117,6 +123,7 @@ class Mechanics:
             args.time_scale: Time scale
             args.model: Model to use for time derivative (optional)
         """
+        # generate initial conditions (y0/masses) if none provided
         if args.y0 is None:
             y0, masses = self.get_initial_conditions(args.n_bodies, masses=args.masses)
         elif args.masses is not None:
@@ -133,12 +140,9 @@ class Mechanics:
             traj_id=traj_id,
         )
 
+        # use an ODE solver to solve the equations of motion
         t = get_timepoints(args.t_span_min, args.t_span_max, args.time_scale)
-
-        solve_ivp = (
-            odeint_symplectic if args.odeint_solver == OdeSolver.SYMPLECTIC else odeint
-        )
-        ivp = solve_ivp(
+        trajectory = args.odeint_solver.solve(
             f=dynamics_fn,
             x=y0,
             t_span=t,
@@ -148,12 +152,14 @@ class Mechanics:
         )[1]
 
         # -> time_scale*t_span_max x n_bodies x 2 x n_dims
-        dsdt = torch.stack([dynamics_fn(None, dp) for dp in ivp])
+        # for each timepoint, get the time derivative of the phase space coordinates
+        dsdt = torch.stack([dynamics_fn(None, st) for st in trajectory])
+
         # -> time_scale*t_span_max x n_bodies x n_dims
         dqdt, dpdt = [d.squeeze() for d in torch.split(dsdt, 1, dim=2)]
 
         # -> time_scale*t_span_max x n_bodies x 2
-        q, p = ivp[:, :, 0], ivp[:, :, 1]
+        q, p = trajectory[:, :, 0], trajectory[:, :, 1]
 
         self.log[traj_id] = None
 

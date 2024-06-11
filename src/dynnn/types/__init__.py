@@ -6,7 +6,7 @@ from .args import (
     MIN_N_BODIES,
     MAX_N_BODIES,
 )
-from .enums import GeneratorType, OdeSolver, VectorField
+from .enums import GeneratorType, OdeSolverType, VectorField
 from .stats import PinnStats
 from .types import GeneratorFunction, Trajectory
 
@@ -15,7 +15,7 @@ __all__ = [
     "DatasetArgs",
     "GeneratorType",
     "GeneratorFunction",
-    "OdeSolver",
+    "OdeSolverType",
     "PinnModelArgs",
     "PinnTrainingArgs",
     "PinnStats",

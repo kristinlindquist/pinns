@@ -1,4 +1,6 @@
 from enum import Enum
+from torchdyn.numerics.odeint import odeint, odeint_symplectic
+from typing import Callable
 
 
 class GeneratorType(Enum):
@@ -17,7 +19,7 @@ class GeneratorType(Enum):
             raise ValueError(f"{value} is not a valid GeneratorType")
 
 
-class OdeSolver(Enum):
+class OdeSolverType(Enum):
     """
     Enum for the type of ODE solver to use
 
@@ -34,11 +36,20 @@ class OdeSolver(Enum):
     SYMPLECTIC = 8
 
     @classmethod
+    def solve(cls, *args, **kwargs):
+        """
+        Solve ODE based on solver type
+        """
+        if cls == OdeSolverType.SYMPLECTIC:
+            return odeint_symplectic(*args, **kwargs)
+        return odeint(*args, **kwargs)
+
+    @classmethod
     def _missing_(cls, value):
         try:
             return cls[value.upper()]
         except KeyError:
-            raise ValueError(f"{value} is not a valid OdeSolver")
+            raise ValueError(f"{value} is not a valid OdeSolverType")
 
 
 class VectorField(Enum):

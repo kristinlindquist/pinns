@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from typing import Any, Literal
 
 
-from .enums import GeneratorType, OdeSolver, VectorField
+from .enums import GeneratorType, OdeSolverType, VectorField
 from .types import ForcedInt, ForcedIntOrNone
 
 MAX_N_BODIES = 50
@@ -152,7 +152,7 @@ class TrajectoryArgs(HasSimulatorArgs):
     # ODE solver parameters
     odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-3)  # , decorator=rl_param)
     odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-3)  # , decorator=rl_param)
-    odeint_solver: OdeSolver = OdeSolver.TSIT5
+    odeint_solver: OdeSolverType = OdeSolverType.TSIT5
 
     @model_validator(mode="after")
     def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:

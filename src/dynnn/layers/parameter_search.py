@@ -30,6 +30,21 @@ class SampledRangeOutputLayer(torch.nn.Module):
     def forward(
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, Distribution]:
+        """
+        Forward pass that:
+
+        1) Computes logits from the linear layer
+        2) Gets the sigmoid outputs
+        3) Samples from the distribution (for policy gradients)
+        4) Scales the outputs according to the specified ranges
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, Distribution]:
+                scaled outputs (used for `step`)
+                sampled_outputs (used for loss)
+                distribution (used for loss)
+        """
+
         logits = self.linear(x)
         sigmoid_outputs = torch.sigmoid(logits)
         distribution = RelaxedOneHotCategorical(
@@ -53,7 +68,15 @@ class SampledRangeOutputLayer(torch.nn.Module):
 
 class ParameterSearchModel(torch.nn.Module):
     """
-    RL model for exploring simulation parameter space
+    Simple feedforward model for RL parameter search.
+
+    - Uses a sampled output layer to provide policy gradients.
+    - Scales outputs according to specified ranges.
+
+    Args:
+        state_dim: size of input tensor
+        output_ranges: dictionary of output ranges
+        hidden_dim: size of hidden layer
     """
 
     def __init__(
@@ -75,4 +98,13 @@ class ParameterSearchModel(torch.nn.Module):
     def forward(
         self, state: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, Distribution]:
+        """
+        Forward pass through the model.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, Distribution]:
+                scaled outputs (used for `step`)
+                sampled_outputs (used for loss)
+                distribution (used for loss)
+        """
         return self.layers(state)
