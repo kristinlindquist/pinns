@@ -14,6 +14,19 @@ from pydantic.functional_validators import BeforeValidator
 from enum import Enum
 from functools import partial
 
+
+def coerce_int(value: Any, allow_none: bool = False) -> int | None:
+    if value is None:
+        if allow_none:
+            return None
+        return 0
+    return int(value)
+
+
+ForcedInt = Annotated[int, BeforeValidator(coerce_int)]
+ForcedIntOrNone = Annotated[int, BeforeValidator(partial(coerce_int, allow_none=True))]
+
+
 GeneratorFunction = Callable[[torch.Tensor], torch.Tensor]
 InitialConditionsFunction = Callable[
     [int, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
@@ -106,38 +119,41 @@ class HasSimulatorParams(BaseModel):
         return "_".join(filename_parts)
 
 
-def coerce_int(value: Any, allow_none: bool = False) -> int | None:
-    if value is None:
-        if allow_none:
-            return None
-        return 0
-    return int(value)
-
-
-ForcedInt = Annotated[int, BeforeValidator(coerce_int)]
-ForcedIntOrNone = Annotated[int, BeforeValidator(partial(coerce_int, allow_none=True))]
+class TrainingArgs(HasSimulatorParams):
+    n_epochs: ForcedInt = Field(50, decorator=rl_param, ge=50, le=200)
+    steps_per_epoch: int = Field(100, ge=20, le=10000)
+    learning_rate: float = Field(1e-3, ge=1e-6, le=1e-1)  # rl_param
+    weight_decay: float = Field(1e-4, ge=1e-6, le=1e-1)  # rl_param
+    tolerance: int = 1e-1
+    patience: int = 10
+    min_epochs: int = 5
 
 
 class ModelArgs(HasSimulatorParams):
     domain_min: ForcedInt = Field(0, decorator=rl_param, ge=-1000, le=1000)
     domain_max: ForcedInt = Field(10, decorator=rl_param, ge=-1000, le=1000)
+    vector_field_type: Literal["solenoidal", "conservative", "port", "both"] = (
+        "conservative"
+    )
+    hidden_dim: ForcedInt = Field(500, decorator=rl_param, ge=8, le=4096)
+    use_invariant_layer: bool = False
 
-    # @model_validator(mode="before")
-    # def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:
-    #     if values["domain_max"] <= values["domain_min"]:
-    #         values["domain_max"] = (
-    #             values["domain_max"] + (values["domain_min"] - values["domain_max"]) + 1
-    #         )
+    @model_validator(mode="after")
+    def pre_update(cls, values: "ModelArgs") -> "ModelArgs":
+        if values.domain_max <= values.domain_min:
+            values.domain_max = (
+                values.domain_max + (values.domain_min - values.domain_max) + 1
+            )
 
-    #     return values
+        return values
 
 
 class DatasetArgs(HasSimulatorParams):
-    n_samples: ForcedInt = Field(2, decorator=rl_param, ge=2, le=10)
+    n_samples: ForcedInt = Field(2, decorator=rl_param, ge=2, le=5)
     test_split: float = Field(0.8, ge=0.1, le=0.9)
 
 
-MAX_N_BODIES = 10
+MAX_N_BODIES = 50
 MIN_N_BODIES = 2
 
 
@@ -157,34 +173,33 @@ class TrajectoryArgs(HasSimulatorParams):
     t_span_max: ForcedInt = Field(3, decorator=rl_param, ge=4, le=15)
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
-    @model_validator(mode="before")
+    @model_validator(mode="after")
     def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:
-        if values.get("masses") is None and values.get("n_bodies") is None:
+        if values.masses is None and values.n_bodies is None:
             raise ValueError("Either masses or n_bodies must be provided")
 
-        if values.get("y0") is not None and values.get("masses") is None:
+        if values.y0 is not None and values.masses is None:
             raise ValueError("y0 and masses must be provided together")
 
-        if values.get("masses") is not None:
-            n_bodies = len(values["masses"])
-            if values.get("n_bodies", n_bodies) != n_bodies:
-                raise ValueError(
-                    f"Number of bodies ({values['n_bodies']}) must match the number of masses ({n_bodies})"
-                )
-            values["n_bodies"] = n_bodies
+        if values.masses is not None:
+            n_bodies = len(values.masses)
+            if values.n_bodies != n_bodies:
+                print(f"Warning: setting n_bodies to {n_bodies}")
+            values.n_bodies = n_bodies
 
-        if values["t_span_max"] <= values["t_span_min"]:
-            values["t_span_max"] = (
-                values["t_span_max"] + (values["t_span_min"] - values["t_span_max"]) + 1
+        if values.t_span_max <= values.t_span_min:
+            values.t_span_max = (
+                values.t_span_max + (values.t_span_min - values.t_span_max) + 1
             )
 
         return values
 
 
 class SimulatorParams(BaseModel):
-    dataset_args: DatasetArgs
-    trajectory_args: TrajectoryArgs
-    model_args: ModelArgs
+    dataset_args: DatasetArgs = DatasetArgs()
+    trajectory_args: TrajectoryArgs = TrajectoryArgs()
+    model_args: ModelArgs = ModelArgs()
+    training_args: TrainingArgs = TrainingArgs()
 
     @property
     def filename(self) -> str:
@@ -192,6 +207,7 @@ class SimulatorParams(BaseModel):
             self.dataset_args.filename,
             self.trajectory_args.filename,
             self.model_args.filename,
+            self.training_args.filename,
         ]
         return "_".join(filename_parts)
 
@@ -201,6 +217,7 @@ class SimulatorParams(BaseModel):
             "dataset_args": self.dataset_args.rl_param_sizes,
             "trajectory_args": self.trajectory_args.rl_param_sizes,
             "model_args": self.model_args.rl_param_sizes,
+            "training_args": self.training_args.rl_param_sizes,
         }
 
     def encode_rl_params(self) -> dict[str, dict[str, torch.Tensor]]:
@@ -208,6 +225,7 @@ class SimulatorParams(BaseModel):
             "dataset_args": self.dataset_args.encode_rl_params(),
             "trajectory_args": self.trajectory_args.encode_rl_params(),
             "model_args": self.model_args.encode_rl_params(),
+            "training_args": self.training_args.encode_rl_params(),
         }
 
     @classmethod
@@ -216,6 +234,7 @@ class SimulatorParams(BaseModel):
             dataset_args=DatasetArgs.load_rl_params(encoded["dataset_args"]),
             trajectory_args=TrajectoryArgs.load_rl_params(encoded["trajectory_args"]),
             model_args=ModelArgs.load_rl_params(encoded.get("model_args", {})),
+            training_args=TrainingArgs.load_rl_params(encoded["training_args"]),
         )
 
 

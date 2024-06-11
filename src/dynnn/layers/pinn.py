@@ -6,7 +6,7 @@ from itertools import permutations
 import math
 
 from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
-from dynnn.types import MIN_N_BODIES, MAX_N_BODIES
+from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, ModelArgs
 from dynnn.utils import permutation_tensor
 
 
@@ -21,26 +21,26 @@ class PINN(nn.Module):
     def __init__(
         self,
         input_dims: tuple[int, int, int],
-        hidden_dim: int,
-        field_type: Literal["conservative", "solenoidal", "both", "port"] = "both",
+        args: ModelArgs,
     ):
         super(PINN, self).__init__()
         self.input_dim = math.prod(input_dims)
         self.P = permutation_tensor()  # Levi-Civita permutation tensor
         self.M = nn.Parameter(torch.randn(self.input_dim, self.input_dim))
-        self.field_type = field_type
+        self.field_type = args.vector_field_type
         self.invariant_layer = TranslationallyInvariantLayer()
-        self.use_invariant_layer = True
+        self.use_invariant_layer = args.use_invariant_layer
 
         self.model = DynamicallySizedNetwork(
             self.input_dim,
-            hidden_dim,
+            args.hidden_dim,
             self.input_dim,
             dynamic_dim=2,
             dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
             dynamic_multiplier=math.prod(input_dims[1:]),
         )
 
+    @property
     def skew(self):
         """
         Skew-symmetric matrix
@@ -53,6 +53,7 @@ class PINN(nn.Module):
 
         x size: batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims
         """
+        # TODO
         # if self.use_invariant_layer:
         #     invariant_features = self.invariant_layer(x)
         #     potentials = self.model(invariant_features).reshape(x.shape)
@@ -67,17 +68,19 @@ class PINN(nn.Module):
             return potentials
 
         if self.field_type == "port":
-            # learn skew invariance
-            d_potential = torch.autograd.grad(
-                [potentials.sum()], [x], create_graph=True
-            )[0]
+            raise NotImplementedError("Port-Hamiltonian systems not yet implemented")
+            # # learn skew invariance
+            # # TODO: skew invariance matrix for variable in/out sizes...
+            # d_potential = torch.autograd.grad(
+            #     [potentials.sum()], [x], create_graph=True
+            # )[0]
 
-            assert d_potential is not None
-            return torch.einsum(
-                "bti,ij->btj",
-                d_potential.reshape(d_potential.shape[0], d_potential.shape[1], -1),
-                self.skew(),
-            ).reshape(d_potential.shape)
+            # assert d_potential is not None
+            # return torch.einsum(
+            #     "bti,ij->btj",
+            #     d_potential.reshape(d_potential.shape[0], d_potential.shape[1], -1),
+            #     self.skew,
+            # ).reshape(d_potential.shape)
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)

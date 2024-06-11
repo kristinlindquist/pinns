@@ -10,7 +10,6 @@ from dynnn.simulation.mve_ensemble import MveEnsembleMechanics, get_initial_cond
 from dynnn.train.pinn_train import pinn_train
 from dynnn.types import (
     GeneratorType,
-    ModelArgs,
     OdeSolver,
     ParameterLossError,
     PinnStats,
@@ -59,50 +58,20 @@ class SimulatorState(BaseModel):
         )
 
 
-def get_initial_params(args: dict) -> SimulatorParams:
-    y0, masses = get_initial_conditions(args.n_bodies, args.n_dims)
-    return SimulatorParams(
-        dataset_args={
-            "n_samples": 2,
-        },
-        trajectory_args={
-            # "y0": y0,
-            # "masses": masses,
-            "n_bodies": args.n_bodies,
-            "time_scale": 3,
-            "t_span_min": 0,
-            "t_span_max": 4,
-            "odeint_rtol": 1e-10,
-            "odeint_atol": 1e-6,
-        },
-        model_args={
-            "domain_min": 0,
-            "domain_max": 10,
-        },
-    )
-
-
 class SimulatorEnv:
     def __init__(
         self,
-        args: dict,
         initial_state: SimulatorState,
         pinn: torch.nn.Module,
         pinn_loss_fn: Callable | None = None,
-        max_steps: int = 1000,
     ):
         self.initial_state = initial_state
         self.pinn = pinn
         self.pinn_loss_fn = pinn_loss_fn
-        self.max_steps = max_steps
         self.current_state = None
-        self.current_step = 0
-        self.prior_dist = None
-        self.args = args
 
     def reset(self) -> SimulatorState:
         self.current_state = self.initial_state
-        self.current_step = 0
         return self.current_state
 
     def step(self, action: SimulatorState) -> tuple[SimulatorState, float, bool]:
@@ -113,25 +82,25 @@ class SimulatorEnv:
         reward = self.reward(self.current_state, new_state)
 
         self.current_state = new_state
-        self.current_step += 1
 
-        is_done = self.current_step >= self.max_steps
-
-        return new_state, reward, is_done
+        return new_state, reward
 
     def simulate(self, action: SimulatorState) -> SimulatorState:
-        mechanics = MveEnsembleMechanics(action.params.model_args)
+        p = action.params
+        mechanics = MveEnsembleMechanics(p.model_args)
 
         # generate EOM dataset
-        data, sim_duration = mechanics.get_dataset(
-            action.params.dataset_args, action.params.trajectory_args
-        )
+        data, sim_duration = mechanics.get_dataset(p.dataset_args, p.trajectory_args)
+
         # train model
         _, stats = pinn_train(
-            self.args, data, model=self.pinn, loss_fn=self.pinn_loss_fn
+            self.initial_state.params.training_args,
+            data,
+            model=self.pinn,
+            loss_fn=self.pinn_loss_fn,
         )
         return SimulatorState(
-            params=params,
+            params=p,
             stats=stats,
             sim_duration=sim_duration,
         )
@@ -161,16 +130,19 @@ def simulator_train(
     """
     Training loop for the RL model
     """
-    initial_state = SimulatorState(params=get_initial_params(args))
+    initial_state = SimulatorState(params=SimulatorParams())
     sbn = SimulatorModel(
         state_dim=initial_state.num_rl_params,
         output_ranges=initial_state.rl_param_sizes_flat,
     )
-    pinn = PINN((100, 2, 3), args.hidden_dim, field_type=args.field_type)
+    pinn = PINN(
+        (100, 2, initial_state.params.trajectory_args.n_dims),
+        initial_state.params.model_args,
+    )
 
-    env = SimulatorEnv(args, initial_state, pinn, pinn_loss_fn=pinn_loss_fn)
+    env = SimulatorEnv(initial_state, pinn, pinn_loss_fn=pinn_loss_fn)
     optimizer = torch.optim.Adam(
-        sbn.parameters(), lr=args.learn_rate, weight_decay=args.weight_decay
+        sbn.parameters(), lr=args.rl_learn_rate, weight_decay=args.rl_weight_decay
     )
 
     for experiment in range(args.num_experiments):
@@ -182,7 +154,7 @@ def simulator_train(
             action, distribution = sbn(state_tensor)
 
             valid_action = SimulatorState.load_rl_params(action, state_dict)
-            next_state, reward, is_done = env.step(valid_action)
+            next_state, reward = env.step(valid_action)
 
             log_prob = distribution.log_prob(action)
             loss = -log_prob * reward
@@ -194,9 +166,6 @@ def simulator_train(
 
             experiment_reward.append(reward.item())
             state = next_state
-
-            if is_done:
-                break
 
         print(
             f"Experiment {experiment + 1}: Reward = {math.mean(experiment_reward):.2f}"

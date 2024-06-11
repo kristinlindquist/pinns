@@ -5,7 +5,7 @@ import time
 import torch.nn.functional as F
 
 from dynnn.layers.pinn import PINN
-from dynnn.types import PinnStats
+from dynnn.types import PinnStats, TrainingArgs
 from dynnn.utils import save_model, save_stats
 
 
@@ -20,7 +20,7 @@ def default_loss_fn(dxdt, dxdt_hat, s, masses):
 
 
 def pinn_train(
-    args: dict,
+    args: TrainingArgs,
     data: dict,
     model: torch.nn.Module,
     plot_loss_callback: Callable | None = None,
@@ -29,10 +29,8 @@ def pinn_train(
     """
     Training loop for the PINN
     """
-    torch.set_default_device(args.device)
-
     optim = torch.optim.Adam(
-        model.parameters(), args.learn_rate, weight_decay=args.weight_decay
+        model.parameters(), args.learning_rate, weight_decay=args.weight_decay
     )
     calc_loss = loss_fn or default_loss_fn
 
@@ -49,7 +47,7 @@ def pinn_train(
 
     # vanilla train loop
     stats = PinnStats()
-    for step in range(args.total_steps + 1):
+    for step in range(args.n_epochs * args.steps_per_epoch + 1):
         ### train ###
         model.train()
         optim.zero_grad()
@@ -93,7 +91,7 @@ def pinn_train(
 
         if step % args.steps_per_epoch == 0:
             if (step / args.steps_per_epoch) >= args.min_epochs:
-                save_stats(stats, run_id=run_id)
+                # save_stats(stats.model_dump(), run_id=run_id)
 
                 val_metric = test_loss.item()
                 if val_metric < best_metric - args.tolerance:
