@@ -1,5 +1,10 @@
 # PINNs
-Various experiments with PINNs in the vague direction of molecular dynamics simulation.
+Various experiments with PINNs for molecular dynamics simulation.
+More generally, I'm exploring how to give models intuition based on formal systems with a sort of FEP/active learning cycle. 
+
+### Rough Idea
+Attempt to solve a hairy "outer problem" (e.g. protein-protein-interaction) by teaching a model to choose and learn from a large number of physics simulations. In a vaguely FEP sense, have the model attempt to gather more data in areas corresponding to its greatest surprisal. "Gather more data" meaning choosing + parameterizing simulations along with its objective. It will explore parameter space driven by reward based on learning objectives and effort (compute time).
+<img width="1346" alt="Screenshot 2024-06-11 at 3 14 53 PM" src="https://github.com/kristinlindquist/pinns/assets/9382486/e62f7ebd-8faa-4ea3-8a83-ba93b0df2f4d">
 
 ### Notebooks
 [MVE Ensemble with RL simulator param search](src/dynnn/simulation/mve_ensemble/run.ipynb) (WIP!)
