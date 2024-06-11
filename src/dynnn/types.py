@@ -120,12 +120,13 @@ class HasSimulatorParams(BaseModel):
 
 
 class TrainingArgs(HasSimulatorParams):
-    n_epochs: ForcedInt = Field(50, decorator=rl_param, ge=50, le=200)
-    steps_per_epoch: int = Field(100, ge=20, le=10000)
+    n_epochs: ForcedInt = Field(5, ge=50, le=200)  # decorator=rl_param
     learning_rate: float = Field(1e-3, ge=1e-6, le=1e-1)  # rl_param
     weight_decay: float = Field(1e-4, ge=1e-6, le=1e-1)  # rl_param
-    tolerance: int = 1e-1
-    patience: int = 10
+    patience: ForcedInt = Field(10, ge=2, le=100, decorator=rl_param)
+
+    tolerance: float = 1e-1
+    steps_per_epoch: int = Field(10, ge=10, le=10000)
     min_epochs: int = 5
 
 
@@ -248,14 +249,14 @@ class PinnStats(BaseModel):
     @staticmethod
     def _calc_mean(values: list[torch.Tensor]) -> torch.Tensor:
         if len(values) == 0:
-            return torch.tensor(0.0)
-        return torch.cat(values).mean()
+            return torch.tensor([0.0])
+        return torch.stack(values).mean()
 
     @staticmethod
     def _calc_min(values: list[torch.Tensor]) -> torch.Tensor:
         if len(values) == 0:
-            return torch.tensor(0.0)
-        return torch.cat(values).min()
+            return torch.tensor([0.0])
+        return torch.stack(values).min()
 
     @property
     def min_train_loss(self) -> torch.Tensor:

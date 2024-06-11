@@ -100,7 +100,7 @@ def pinn_train(
                     )
                     best_metric = val_metric
                     counter = 0
-                    save_model(model, run_id=run_id)
+                    save_model(model, run_id)
                 else:
                     counter += 1
                     if counter >= args.patience:

@@ -65,8 +65,8 @@ def save_model(model: torch.nn.Module, run_id: str):
 
     file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
     print("Saving model to", file_path)
-    model_scripted = torch.jit.script(model)  # Export to TorchScript
-    model_scripted.save(file_path)
+    # model_scripted = torch.jit.script(model)  # Export to TorchScript
+    torch.save(model, file_path)
 
 
 def save_stats(stats: dict, run_id: str):
@@ -92,7 +92,8 @@ def load_model(file_or_timestamp: str) -> torch.nn.Module:
         model_file = f"dynnn-{model_file}"
 
     file_path = f"{MODEL_BASE_DIR}/{model_file}"
-    model = torch.jit.load(file_path)
+    # model = torch.jit.load(file_path)
+    model = torch.load("file_path.pth")
     model.eval()
     return model
 

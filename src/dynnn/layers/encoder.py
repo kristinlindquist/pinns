@@ -47,7 +47,7 @@ def encode_params(params: dict) -> torch.Tensor:
 
 
 def unflatten_params(
-    params_tensor: torch.Tensor, params_template: dict, decode_tensors: bool = False
+    params_tensor: torch.Tensor, template: dict, decode_tensors: bool = False
 ) -> dict[str, torch.Tensor]:
     """
     Decodes a tensor into a nested dictionary of params.
@@ -57,7 +57,7 @@ def unflatten_params(
     if decode_tensors:
         decoded_values = [decode_value(v) for v in decoded_values]
 
-    flat_tensor_params = dict(zip(flatten_dict(params_template).keys(), decoded_values))
+    flat_tensor_params = dict(zip(flatten_dict(template).keys(), decoded_values))
     nested_tensor_params = unflatten_dict(flat_tensor_params)
 
     return nested_tensor_params

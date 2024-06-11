@@ -27,10 +27,14 @@ class SampledRangeOutputLayer(torch.nn.Module):
         self.output_ranges = output_ranges
         self.linear = torch.nn.Linear(input_size, len(output_ranges))
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, Distribution]:
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, Distribution]:
         logits = self.linear(x)
         sigmoid_outputs = torch.sigmoid(logits)
-        distribution = RelaxedOneHotCategorical(1.0, logits=sigmoid_outputs)
+        distribution = RelaxedOneHotCategorical(
+            torch.tensor(1.0), logits=sigmoid_outputs
+        )
         sampled_outputs = distribution.rsample()
 
         def scale_output(i: int, o_range: tuple) -> float:
@@ -44,7 +48,7 @@ class SampledRangeOutputLayer(torch.nn.Module):
             if isinstance(o_range, tuple)
         ]
 
-        return torch.stack(scaled_outputs), distribution
+        return torch.stack(scaled_outputs), sampled_outputs, distribution
 
 
 class SimulatorModel(torch.nn.Module):
@@ -68,5 +72,7 @@ class SimulatorModel(torch.nn.Module):
             SampledRangeOutputLayer(action_dim, output_ranges),
         )
 
-    def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, Distribution]:
+    def forward(
+        self, state: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, Distribution]:
         return self.layers(state)

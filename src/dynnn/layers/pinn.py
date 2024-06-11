@@ -68,8 +68,6 @@ class PINN(nn.Module):
             return potentials
 
         if self.field_type == "port":
-            raise NotImplementedError("Port-Hamiltonian systems not yet implemented")
-            # # learn skew invariance
             # # TODO: skew invariance matrix for variable in/out sizes...
             # d_potential = torch.autograd.grad(
             #     [potentials.sum()], [x], create_graph=True
@@ -81,6 +79,7 @@ class PINN(nn.Module):
             #     d_potential.reshape(d_potential.shape[0], d_potential.shape[1], -1),
             #     self.skew,
             # ).reshape(d_potential.shape)
+            raise NotImplementedError("Port-Hamiltonian systems not yet implemented")
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)

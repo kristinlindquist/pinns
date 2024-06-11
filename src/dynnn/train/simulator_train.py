@@ -114,11 +114,13 @@ class SimulatorEnv:
         """
         new_stats, old_stats = new_state.stats, old_state.stats
 
-        var_loss_reduction = old_stats.min_train_loss - new_stats.min_train_loss
+        var_loss_reduction = (
+            old_stats.min_train_loss.detach() - new_stats.min_train_loss.detach()
+        )
         runtime_penalty = (new_state.sim_duration - old_state.sim_duration) * 100
         # canonical_loss_reduction = 0  # TODO
 
-        return var_loss_reduction + sim_reduction  # + canonical_loss_reduction
+        return var_loss_reduction + runtime_penalty  # + canonical_loss_reduction
 
 
 def simulator_train(
@@ -150,17 +152,18 @@ def simulator_train(
         experiment_reward = []
 
         for step in range(args.max_simulator_steps):
+            optimizer.zero_grad()
+
             state_tensor, state_dict = state.encode_rl_params()
-            action, distribution = sbn(state_tensor)
+            action, unscaled_action, distribution = sbn(state_tensor)
 
             valid_action = SimulatorState.load_rl_params(action, state_dict)
             next_state, reward = env.step(valid_action)
 
-            log_prob = distribution.log_prob(action)
+            log_prob = distribution.log_prob(unscaled_action)
             loss = -log_prob * reward
-
-            optimizer.zero_grad()
             loss.backward()
+
             torch.nn.utils.clip_grad_norm_(sbn.parameters(), max_norm=1.0)
             optimizer.step()
 
