@@ -1,49 +1,23 @@
 from typing import Annotated, Any, Callable, Literal
 import torch
+import torch.nn.functional as F
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
+    field_validator,
     model_validator,
     validator,
 )
-from pydantic.functional_validators import AfterValidator
+from pydantic.functional_validators import BeforeValidator
 from enum import Enum
+from functools import partial
 
 GeneratorFunction = Callable[[torch.Tensor], torch.Tensor]
 InitialConditionsFunction = Callable[
     [int, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
 ]
-
-
-def float_tensor(value) -> float | torch.Tensor:
-    if isinstance(value, float):
-        return value
-
-    if isinstance(value, torch.Tensor):
-        return torch.clamp(value, min=cls.ge, max=cls.le).item()
-
-    raise ValueError(f"Unsupported value type: {type(value)}")
-
-
-FloatTensor = Annotated[float, AfterValidator(float_tensor)]
-
-
-def long_tensor(value) -> int | torch.Tensor:
-    if isinstance(value, int):
-        return value
-
-    if isinstance(value, torch.Tensor):
-        return torch.clamp(value, min=cls.ge, max=cls.le).item()
-
-    raise ValueError(f"Unsupported value type: {type(value)}")
-
-
-LongTensor = Annotated[int, AfterValidator(long_tensor)]
-
-
-def rl_param(attr):
-    attr.metadata["is_rl_trainable"] = True
 
 
 class GeneratorType(Enum):
@@ -77,6 +51,10 @@ class OdeSolver(Enum):
             raise ValueError(f"{value} is not a valid OdeSolver")
 
 
+def rl_param(attr):
+    attr.metadata["is_rl_trainable"] = True
+
+
 class HasSimulatorParams(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     """
@@ -84,62 +62,94 @@ class HasSimulatorParams(BaseModel):
     """
 
     @classmethod
-    @property
-    def rl_fields(cls):
-        return [
-            field_name
+    def rl_fields(cls) -> dict[str, type]:
+        return {
+            field_name: field.annotation
             for field_name, field in cls.model_fields.items()
             if (field.json_schema_extra or {}).get("decorator") == rl_param
-        ]
+        }
 
-    def encode_for_rl(self) -> dict:
-        return {field_name: getattr(self, field_name) for field_name in self.rl_fields}
+    @property
+    def rl_param_sizes(self) -> dict[str, tuple[int, int]]:
+        return {
+            # TODO: metadata=[Ge(ge=0.1), Le(le=0.9)]
+            field_name: (
+                field.metadata[0].__getstate__()[0],  # pulls 0.1 from Ge(ge=0.1)
+                field.metadata[1].__getstate__()[0],
+            )
+            for field_name, field in self.model_fields.items()
+            if (field.json_schema_extra or {}).get("decorator") == rl_param
+        }
+
+    def encode_rl_params(self) -> dict:
+        return {
+            field_name: getattr(self, field_name) for field_name in self.rl_fields()
+        }
 
     @classmethod
-    def decode_from_rl(cls, encoded: dict) -> "HasSimulatorParams":
-        return cls(**{k: v for k, v in encoded.items() if k in cls.rl_fields})
+    def load_rl_params(cls, encoded: dict):
+        return cls(**{f: v for f, v in encoded.items() if f in cls.rl_fields()})
+
+    @classmethod
+    def calc_rl_param_loss(cls, encoded: dict) -> torch.Tensor:
+        actual = torch.stack([encoded[f] for f in cls.rl_fields()])
+
+        adjusted = cls(**{f: v for f, v in encoded.items() if f in cls.rl_fields()})
+        adjusted = torch.stack([getattr(adjusted, f) for f in cls.rl_fields()])
+
+        res = F.mse_loss(actual, adjusted)
+        return res
 
     @property
     def filename(self) -> str:
-        filename_parts = [f"{k}-{v}" for k, v in self.encode_for_rl().items()]
+        filename_parts = [f"{k}-{v}" for k, v in self.encode_rl_params().items()]
         return "_".join(filename_parts)
 
 
-class ModelArgs(HasSimulatorParams):
-    domain_min: LongTensor = Field(0, decorator=rl_param, ge=-1000, le=1000)
-    domain_max: LongTensor = Field(10, decorator=rl_param)
+def coerce_int(value: Any, allow_none: bool = False) -> int | None:
+    if value is None:
+        if allow_none:
+            return None
+        return 0
+    return int(value)
 
-    @validator("domain_max")
-    def domain_max_gt_min(cls, domain_max, values, **kwargs):
-        if domain_max <= values.get("domain_min"):
-            return domain_max + (values.get("domain_min") - domain_max) + 1
-        return domain_max
+
+ForcedInt = Annotated[int, BeforeValidator(coerce_int)]
+ForcedIntOrNone = Annotated[int, BeforeValidator(partial(coerce_int, allow_none=True))]
+
+
+class ModelArgs(HasSimulatorParams):
+    domain_min: ForcedInt = Field(0, decorator=rl_param, ge=-1000, le=1000)
+    domain_max: ForcedInt = Field(10, decorator=rl_param, ge=-1000, le=1000)
+
+    # @model_validator(mode="before")
+    # def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:
+    #     if values["domain_max"] <= values["domain_min"]:
+    #         values["domain_max"] = (
+    #             values["domain_max"] + (values["domain_min"] - values["domain_max"]) + 1
+    #         )
+
+    #     return values
 
 
 class DatasetArgs(HasSimulatorParams):
-    num_samples: int | torch.Tensor = Field(2, decorator=rl_param, ge=1, le=1000)
-    test_split: float | torch.Tensor = Field(0.8, ge=0.1, le=0.9)
+    n_samples: ForcedInt = Field(2, decorator=rl_param, ge=2, le=10)
+    test_split: float = Field(0.8, ge=0.1, le=0.9)
 
 
 class TrajectoryArgs(HasSimulatorParams):
     y0: torch.Tensor | None = None
     masses: torch.Tensor | None = None
-    n_bodies: LongTensor | None = Field(None, decorator=rl_param, ge=1, le=10000)
-    n_dims: LongTensor = Field(3, decorator=rl_param, ge=1, le=6)
-    time_scale: LongTensor = Field(3, decorator=rl_param, ge=1, le=1000)
+    n_bodies: ForcedIntOrNone = Field(5, decorator=rl_param, ge=1, le=10)
+    n_dims: ForcedInt = Field(3, ge=1, le=6)  # decorator=rl_param)
+    time_scale: ForcedInt = Field(3, decorator=rl_param, ge=1, le=10)
     model: torch.nn.Module | None = None
-    odeint_rtol: FloatTensor = Field(1e-10, decorator=rl_param, ge=1e-12, le=1e-3)
-    odeint_atol: FloatTensor = Field(1e-6, decorator=rl_param, ge=1e-12, le=1e-3)
+    odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-3)  # , decorator=rl_param)
+    odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-3)  # , decorator=rl_param)
     odeint_solver: OdeSolver = OdeSolver.TSIT5
-    t_span_min: LongTensor = Field(0, decorator=rl_param, ge=0, le=1000)
-    t_span_max: LongTensor = Field(3, decorator=rl_param)
+    t_span_min: ForcedInt = Field(0, decorator=rl_param, ge=0, le=3)
+    t_span_max: ForcedInt = Field(3, decorator=rl_param, ge=4, le=15)
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
-
-    @validator("t_span_max")
-    def t_span_max_gt_min(cls, t_span_max, values, **kwargs):
-        if t_span_max <= values["t_span_min"]:
-            return t_span_max + (values["t_span_min"] - t_span_max) + 1
-        return t_span_max
 
     @model_validator(mode="before")
     def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:
@@ -156,6 +166,11 @@ class TrajectoryArgs(HasSimulatorParams):
                     f"Number of bodies ({values['n_bodies']}) must match the number of masses ({n_bodies})"
                 )
             values["n_bodies"] = n_bodies
+
+        if values["t_span_max"] <= values["t_span_min"]:
+            values["t_span_max"] = (
+                values["t_span_max"] + (values["t_span_min"] - values["t_span_max"]) + 1
+            )
 
         return values
 
@@ -174,19 +189,27 @@ class SimulatorParams(BaseModel):
         ]
         return "_".join(filename_parts)
 
-    def encode(self):
+    @property
+    def rl_param_sizes(self) -> dict[str, dict[str, tuple[int, int]]]:
         return {
-            **self.dataset_args.encode_for_rl(),
-            **self.trajectory_args.encode_for_rl(),
-            **self.model_args.encode_for_rl(),
+            "dataset_args": self.dataset_args.rl_param_sizes,
+            "trajectory_args": self.trajectory_args.rl_param_sizes,
+            "model_args": self.model_args.rl_param_sizes,
         }
 
-    @staticmethod
-    def load(encoded: dict[str, torch.Tensor]) -> "SimulatorParams":
-        return SimulatorParams(
-            dataset_args=DatasetArgs.decode_from_rl(encoded["dataset_args"]),
-            trajectory_args=TrajectoryArgs.decode_from_rl(encoded["trajectory_args"]),
-            model_args=ModelArgs.decode_from_rl(encoded.get("model_args", {})),
+    def encode_rl_params(self) -> dict[str, dict[str, torch.Tensor]]:
+        return {
+            "dataset_args": self.dataset_args.encode_rl_params(),
+            "trajectory_args": self.trajectory_args.encode_rl_params(),
+            "model_args": self.model_args.encode_rl_params(),
+        }
+
+    @classmethod
+    def load_rl_params(cls, encoded: dict[str, torch.Tensor]) -> "SimulatorParams":
+        return cls(
+            dataset_args=DatasetArgs.load_rl_params(encoded["dataset_args"]),
+            trajectory_args=TrajectoryArgs.load_rl_params(encoded["trajectory_args"]),
+            model_args=ModelArgs.load_rl_params(encoded.get("model_args", {})),
         )
 
 
@@ -231,3 +254,9 @@ class Trajectory(BaseModel):
     dq: torch.Tensor
     dp: torch.Tensor
     t: torch.Tensor
+
+
+class ParameterLossError(ValueError):
+    def __init__(self, message, loss):
+        super().__init__(message)
+        self.loss = loss

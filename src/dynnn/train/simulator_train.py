@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable
 import torch
 from pydantic import BaseModel
 import statistics as math
@@ -8,15 +8,61 @@ from dynnn.layers.pinn import PINN
 from dynnn.layers.encoder import encode_params, flatten_dict, unflatten_params
 from dynnn.simulation.mve_ensemble import MveEnsembleMechanics, get_initial_conditions
 from dynnn.train.pinn_train import pinn_train
-from dynnn.types import GeneratorType, ModelArgs, OdeSolver, PinnStats, SimulatorParams
+from dynnn.types import (
+    GeneratorType,
+    ModelArgs,
+    OdeSolver,
+    ParameterLossError,
+    PinnStats,
+    SimulatorParams,
+)
+
+
+class SimulatorState(BaseModel):
+    params: SimulatorParams
+    stats: PinnStats = PinnStats()
+    sim_duration: float = 0.0
+
+    @property
+    def rl_param_sizes(self) -> dict[str, dict[str, Any]]:
+        return {
+            "params": self.params.rl_param_sizes,
+            "stats": 2,
+            "sim_duration": 2,
+        }
+
+    @property
+    def rl_param_sizes_flat(self) -> dict[str, tuple[int, int]]:
+        return flatten_dict(self.rl_param_sizes)
+
+    @property
+    def num_rl_params(self) -> int:
+        return len(self.rl_param_sizes_flat)
+
+    def encode_rl_params(self) -> tuple[torch.Tensor, dict]:
+        attributes = {
+            "params": self.params.encode_rl_params(),
+            "stats": self.stats.encode(),
+            "sim_duration": self.sim_duration,
+        }
+
+        return encode_params(flatten_dict(attributes)), attributes
+
+    @classmethod
+    def load_rl_params(cls, encoded: dict, template: dict) -> "SimulatorParams":
+        scalar_dict = unflatten_params(encoded, template, decode_tensors=True)
+        return cls(
+            params=SimulatorParams.load_rl_params(scalar_dict["params"]),
+            stats=scalar_dict.get("stats", {}),
+            sim_duration=scalar_dict.get("sim_duration", 0.0),
+        )
 
 
 def get_initial_params(args: dict) -> SimulatorParams:
     y0, masses = get_initial_conditions(args.n_bodies, args.n_dims)
     return SimulatorParams(
         dataset_args={
-            "num_samples": 2,
-            "test_split": 0.8,
+            "n_samples": 2,
         },
         trajectory_args={
             # "y0": y0,
@@ -25,40 +71,14 @@ def get_initial_params(args: dict) -> SimulatorParams:
             "time_scale": 3,
             "t_span_min": 0,
             "t_span_max": 4,
-            "generator_type": GeneratorType.HAMILTONIAN,
-            # "odeint_rtol": 1e-10,
-            # "odeint_atol": 1e-6,
-            # "odeint_solver": OdeSolver.TSIT5,
+            "odeint_rtol": 1e-10,
+            "odeint_atol": 1e-6,
         },
         model_args={
             "domain_min": 0,
             "domain_max": 10,
         },
     )
-
-
-class SimulatorState(BaseModel):
-    params: SimulatorParams
-    stats: PinnStats = PinnStats()
-    sim_duration: float = 0.0
-
-    def encode(self):
-        attributes = {
-            "params": self.params.encode(),
-            "stats": self.stats.encode(),
-            "sim_duration": self.sim_duration,
-        }
-
-        return encode_params(flatten_dict(attributes))
-
-    @classmethod
-    def load(cls, encoded: dict, template_params: dict) -> "SimulatorParams":
-        tensor_dict = unflatten_params(encoded, template_params)
-        return cls(
-            params=SimulatorParams.load(tensor_dict["params"]),
-            stats=tensor_dict.get("stats", {}),
-            sim_duration=tensor_dict.get("sim_duration", 0.0),
-        )
 
 
 class SimulatorEnv:
@@ -82,22 +102,6 @@ class SimulatorEnv:
         self.current_step = 0
         return self.current_state
 
-    def validation_penalty(params):
-        # Define the compatible range for each parameter
-        min_vals = torch.tensor([...])
-        max_vals = torch.tensor([...])
-
-        # Clamp the parameters within the compatible range
-        clamped_params = torch.clamp(params, min_vals, max_vals)
-
-        # Calculate the deviation from the compatible range
-        deviation = torch.abs(params - clamped_params)
-
-        # Apply a smooth penalty based on the deviation
-        penalty = torch.exp(deviation.sum())
-
-        return penalty
-
     def step(self, action: SimulatorState) -> tuple[SimulatorState, float, bool]:
         # Apply the action (parameter configuration) to the simulator
         new_state = self.simulate(action)
@@ -105,11 +109,9 @@ class SimulatorEnv:
         # Compute the reward based on the state transition
         reward = self.reward(self.current_state, new_state)
 
-        # Update the current state and step counter
         self.current_state = new_state
         self.current_step += 1
 
-        # Check if the simulation has reached the maximum number of steps
         is_done = self.current_step >= self.max_steps
 
         return new_state, reward, is_done
@@ -147,39 +149,49 @@ class SimulatorEnv:
 
 def simulator_train(
     args: dict, canonical_data: dict = {}, plot_loss_callback: Callable | None = None
-):
+) -> tuple[torch.nn.Module, dict]:
     """
     Training loop for the RL model
     """
     initial_state = SimulatorState(params=get_initial_params(args))
-    total_params = len(initial_state.encode())
-    sbn = SimulatorModel(state_dim=total_params, action_dim=total_params)
+    sbn = SimulatorModel(
+        state_dim=initial_state.num_rl_params,
+        output_ranges=initial_state.rl_param_sizes_flat,
+    )
     pinn = PINN(
         (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
     )
 
     env = SimulatorEnv(args, initial_state, pinn)
-    optimizer = torch.optim.Adam(sbn.parameters(), lr=args.learn_rate)
+    optimizer = torch.optim.Adam(
+        sbn.parameters(), lr=args.learn_rate, weight_decay=args.weight_decay
+    )
 
     for experiment in range(args.num_experiments):
         state = env.reset()
-        experiment_reward = 0
+        experiment_reward = []
 
         for step in range(args.max_simulator_steps):
-            action = sbn(state.encode())
+            state_tensor, state_dict = state.encode_rl_params()
+            action, distribution = sbn(state_tensor)
 
-            valid_action = SimulatorState.load(action, initial_state.model_dump())
+            valid_action = SimulatorState.load_rl_params(action, state_dict)
             next_state, reward, is_done = env.step(valid_action)
 
             loss = -reward
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(sbn.parameters(), max_norm=1.0)
             optimizer.step()
 
-            experiment_reward += reward
+            experiment_reward.append(reward.item())
             state = next_state
 
             if is_done:
                 break
 
-        print(f"Experiment {experiment + 1}: Reward = {experiment_reward:.2f}")
+        print(
+            f"Experiment {experiment + 1}: Reward = {math.mean(experiment_reward):.2f}"
+        )
+
+    return None, None

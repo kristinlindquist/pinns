@@ -68,7 +68,7 @@ class Mechanics:
             model: model to use for time derivative
             function_args: additional arguments for the function
         """
-        if isNaN(t):
+        if t is not None and torch.isnan(t):
             raise ValueError("t is NaN")
 
         if traj_id in self.log:
@@ -181,7 +181,7 @@ class Mechanics:
         (with pickle caching)
 
         Args:
-        args.num_samples: Number of samples
+        args.n_samples: Number of samples
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
         """
@@ -217,16 +217,16 @@ class Mechanics:
         Generate a dataset of trajectories
 
         Args:
-        args.num_samples: Number of samples
+        args.n_samples: Number of samples
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
         """
 
-        num_samples, test_split = args.dict().values()
+        n_samples, test_split = args.dict().values()
 
         torch.seed()
         xs, dxs, time = [], [], None
-        for s in range(num_samples):
+        for s in range(n_samples):
             q, p, dq, dp, t = self.get_trajectory(trajectory_args).dict().values()
 
             if time is None:
