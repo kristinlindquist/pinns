@@ -5,17 +5,18 @@ import torch.nn.functional as F
 from functools import partial
 
 from dynnn.mechanics import Mechanics
-from dynnn.types import ModelArgs
+from dynnn.types import GeneratorType, PinnModelArgs
 
 
 def get_initial_conditions(
     n_bodies: int,
-    n_dims: int,
+    n_dims: int = 3,
     width: int = 4,
     height: int = 4,
     depth: int = 4,
     temp: float = 5.0,
     offset: int = 2,
+    masses: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Generate initial conditions for a system of particles.
@@ -28,7 +29,11 @@ def get_initial_conditions(
         temp (float): Temperature of the system
     """
     # initialize masses
-    masses = torch.ones(n_bodies).requires_grad_()
+    if masses is None:
+        masses = torch.ones(n_bodies).requires_grad_()
+
+    if masses.shape[0] != n_bodies:
+        raise ValueError("Masses must be the same length as the number of bodies")
 
     # initialize positions
     possible_dims = [width, height, depth]
@@ -49,8 +54,8 @@ def get_initial_conditions(
 def calc_boundary_potential(
     positions: torch.Tensor,
     boundaries: tuple[float, float],
-    steepness: float = 1000.0,
-    width: float = 0.05,
+    steepness: float = 2000.0,
+    width: float = 0.01,
 ) -> torch.Tensor:
     """
     A conservative boundary potential that fades out smoothly.
@@ -126,23 +131,17 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
         masses (torch.Tensor): Tensor containing masses of particles
     """
     if len(masses.shape) == 1:
-        # Reshape from (n_bodies,) to (n_bodies, 1)
         masses = masses.unsqueeze(-1)
 
-    # Ensure masses can broadcast correctly with velocities
-    if len(velocities.shape) >= 3:
-        masses = masses.reshape(
-            *([1] * (len(velocities.shape) - 2)), masses.shape[0], 1
-        )
+    masses = masses.expand(velocities.shape)
 
+    # sum along n_bodies dimension
     kinetic_energy = torch.sum(0.5 * masses * velocities**2, dim=-1)
 
     # Average the kinetic energies over all particles
-    if kinetic_energy.dim() > 1:
-        # If we have timepoints, average across all particles for each timepoint
-        return kinetic_energy.mean(dim=-1)
-
-    return kinetic_energy.mean()
+    # If we have timepoints, average across all particles for each timepoint
+    mean_dim = -1 if velocities.dim() > 1 else 0
+    return kinetic_energy.mean(dim=mean_dim)
 
 
 def calc_total_energy(
@@ -153,6 +152,8 @@ def calc_total_energy(
 ):
     """
     Compute the total energy of a system.
+
+    Returns a tensor of shape (timepoints)
     """
     kinetic_energy = calc_kinetic_energy(v, masses)
     potential_energy = potential_fn(q)
@@ -177,8 +178,8 @@ def energy_conservation_loss(
     q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
     energy = calc_total_energy(q, v, masses, potential_fn)
 
-    # Compute the difference in energy between each timepoint (dim 1)
-    energy_diff = torch.abs(torch.diff(energy, dim=1)).sum(dim=1)
+    # Compute the difference in energy between each timepoint
+    energy_diff = torch.abs(torch.diff(energy, dim=0)).sum()
 
     return energy_diff.mean() * 100
 
@@ -232,21 +233,23 @@ class MveEnsembleMechanics(Mechanics):
     Mechanics for an MVE ensemble.
     """
 
-    def __init__(self, args: ModelArgs = ModelArgs()):
+    def __init__(self, args: PinnModelArgs = PinnModelArgs()):
         # potential energy function
         # - Lennard-Jones potential
         # - Boundary potential
         def potential_fn(positions: torch.Tensor):
-            bc_pe = calc_boundary_potential(positions, boundaries=args.domain)
+            bc_pe = calc_boundary_potential(
+                positions, boundaries=(args.domain_min, args.domain_max)
+            )
             return calc_lennard_jones_potential(positions) + bc_pe
 
         self.potential_fn = potential_fn
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
 
-        _get_generator_fn = lambda masses: partial(
+        _get_generator_fn = lambda masses, generator_type: partial(
             (
                 mve_ensemble_l_fn
-                if args.system_type == "lagrangian"
+                if generator_type == GeneratorType.LAGRANGIAN
                 else mve_ensemble_h_fn
             ),
             masses=masses,
@@ -255,7 +258,7 @@ class MveEnsembleMechanics(Mechanics):
 
         super(MveEnsembleMechanics, self).__init__(
             _get_generator_fn,
-            domain=args.domain,
-            t_span=args.t_span,
-            system_type=args.system_type,
+            get_initial_conditions=get_initial_conditions,
+            domain_min=args.domain_min,
+            domain_max=args.domain_max,
         )

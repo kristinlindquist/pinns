@@ -1,0 +1,83 @@
+from typing import Callable
+import torch
+from pydantic import BaseModel
+import statistics as math
+
+from dynnn.simulation.mve_ensemble import MveEnsembleMechanics
+from dynnn.train.train_pinn import train_pinn
+
+from .types import SimulatorState
+
+
+class SimulatorEnv:
+    """
+    Environment for the simulator
+
+    - reset: reset the environment to the initial state
+    - step: apply an action (parameter configuration) to the simulator
+    - simulate: simulate the environment with the given action
+    - reward: compute the reward based on the state transition
+    """
+
+    def __init__(
+        self,
+        initial_state: SimulatorState,
+        pinn: torch.nn.Module,
+        pinn_loss_fn: Callable | None = None,
+    ):
+        self.initial_state = initial_state
+        self.pinn = pinn
+        self.pinn_loss_fn = pinn_loss_fn
+        self.current_state = None
+
+    def reset(self) -> SimulatorState:
+        self.current_state = self.initial_state
+        return self.current_state
+
+    def step(self, action: SimulatorState) -> tuple[SimulatorState, float, bool]:
+        # Apply the action (parameter configuration) to the simulator
+        new_state = self.simulate(action)
+
+        # Compute the reward based on the state transition
+        reward = self.reward(self.current_state, new_state)
+
+        self.current_state = new_state
+
+        return new_state, reward
+
+    def simulate(self, action: SimulatorState) -> SimulatorState:
+        p = action.params
+        mechanics = MveEnsembleMechanics(p.model_args)
+
+        # generate EOM dataset
+        data, sim_duration = mechanics.get_dataset(p.dataset_args, p.trajectory_args)
+
+        # train model
+        _, stats = train_pinn(
+            self.initial_state.params.training_args,
+            data,
+            model=self.pinn,
+            loss_fn=self.pinn_loss_fn,
+        )
+        return SimulatorState(
+            params=p,
+            stats=stats,
+            sim_duration=sim_duration,
+        )
+
+    def reward(self, old_state: SimulatorState, new_state: SimulatorState) -> float:
+        """
+        Reward based on:
+        - Variable Objective loss
+        - Canonical loss
+        - Computational cost
+        """
+        new_stats, old_stats = new_state.stats, old_state.stats
+
+        var_loss_reduction = (
+            old_stats.min_train_loss.detach() - new_stats.min_train_loss.detach()
+        )
+        runtime_penalty = (new_state.sim_duration - old_state.sim_duration) * 100
+        # canonical_loss_reduction = 0  # TODO
+
+        return var_loss_reduction + runtime_penalty  # + canonical_loss_reduction

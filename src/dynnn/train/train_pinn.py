@@ -4,61 +4,55 @@ import math, os, sys
 import time
 import torch.nn.functional as F
 
-from dynnn.models import DynNN
-from dynnn.utils import save_model, save_stats
+from dynnn.layers.pinn import PINN
+from dynnn.types import PinnStats, PinnTrainingArgs
+from dynnn.utils import save_model
 
 
-def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
+def default_loss_fn(dxdt, dxdt_hat, s, masses):
     """
-    Training loop
+    Calculate the loss
     """
+    loss = F.mse_loss(dxdt, dxdt_hat)
+    addtl_loss = torch.tensor(0.0)
 
-    def calc_loss(dxdt, dxdt_hat, s):
-        """
-        Calculate the loss
-        """
-        loss = F.mse_loss(dxdt, dxdt_hat)
-        addtl_loss = None
+    return loss, addtl_loss
 
-        if args.additional_loss is not None:
-            addtl_loss = args.additional_loss(s, s + dxdt_hat * 0.01).sum()
-            loss += addtl_loss
 
-        return loss, addtl_loss
-
-    torch.set_default_device(args.device)
-
-    model = DynNN(
-        (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
-    )
+def train_pinn(
+    args: PinnTrainingArgs,
+    data: dict,
+    model: torch.nn.Module,
+    plot_loss_callback: Callable | None = None,
+    loss_fn: Callable | None = None,
+) -> tuple[torch.nn.Module, dict]:
+    """
+    Training loop for the PINN
+    """
     optim = torch.optim.Adam(
-        model.parameters(), args.learn_rate, weight_decay=args.weight_decay
+        model.parameters(), args.learning_rate, weight_decay=args.weight_decay
     )
+    calc_loss = loss_fn or default_loss_fn
 
-    # batch_size x (time_scale*t_span[1]) x n_bodies x 2 x n_dims
-    x = data["x"].clone().detach().requires_grad_().to(args.device)
-    test_x = data["test_x"].clone().detach().requires_grad_().to(args.device)
-    dxdt = data["dx"].clone().detach().requires_grad_().to(args.device)
-    test_dxdt = data["test_dx"].clone().detach().requires_grad_().to(args.device)
+    # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
+    x = data["x"].clone().detach().requires_grad_()
+    test_x = data["test_x"].clone().detach().requires_grad_()
+    dxdt = data["dx"].clone().detach().requires_grad_()
+    test_dxdt = data["test_dx"].clone().detach().requires_grad_()
+    masses = data["masses"].clone().detach().requires_grad_()
 
     run_id = time.time()
     counter = 0
     best_metric = float("inf")
 
     # vanilla train loop
-    stats = {
-        "train_loss": [],
-        "test_loss": [],
-        "train_additional_loss": [],
-        "test_additional_loss": [],
-    }
-    for step in range(args.total_steps + 1):
+    stats = PinnStats()
+    for step in range(args.n_epochs * args.steps_per_epoch + 1):
         ### train ###
         model.train()
         optim.zero_grad()
-        idxs = torch.randperm(x.shape[0])[: args.batch_size]
-        dxdt_hat = model.forward(x[idxs])
-        loss, additional_loss = calc_loss(dxdt[idxs], dxdt_hat, x[idxs])
+        dxdt_hat = model.forward(x)
+        loss, additional_loss = calc_loss(dxdt, dxdt_hat, x, masses)
         loss.backward()
 
         # with torch.autograd.profiler.profile() as prof:
@@ -70,16 +64,15 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
 
         ### test ###
         model.eval()
-        test_idxs = torch.randperm(test_x.shape[0])[: args.batch_size]
-        test_dxdt_hat = model.forward(test_x[test_idxs])  # .detach()
+        test_dxdt_hat = model.forward(test_x)  # .detach()
         test_loss, test_additional_loss = calc_loss(
-            test_dxdt[test_idxs], test_dxdt_hat, test_x[test_idxs]
+            test_dxdt, test_dxdt_hat, test_x, masses
         )
 
-        stats["train_loss"].append(loss.item())
-        stats["test_loss"].append(test_loss.item())
-        stats["train_additional_loss"].append(additional_loss.item())
-        stats["test_additional_loss"].append(test_additional_loss.item())
+        stats.train_loss.append(loss)
+        stats.test_loss.append(test_loss)
+        stats.train_additional_loss.append(additional_loss)
+        stats.test_additional_loss.append(test_additional_loss)
 
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
             # callback & log stats for every step, until the first epoch
@@ -98,8 +91,6 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
 
         if step % args.steps_per_epoch == 0:
             if (step / args.steps_per_epoch) >= args.min_epochs:
-                save_stats(stats, run_id=run_id)
-
                 val_metric = test_loss.item()
                 if val_metric < best_metric - args.tolerance:
                     print(
@@ -107,7 +98,7 @@ def train(args: dict, data: dict, plot_loss_callback: Callable | None = None):
                     )
                     best_metric = val_metric
                     counter = 0
-                    save_model(model, run_id=run_id)
+                    save_model(model, run_id)
                 else:
                     counter += 1
                     if counter >= args.patience:

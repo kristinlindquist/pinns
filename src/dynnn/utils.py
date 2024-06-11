@@ -1,25 +1,42 @@
 import os
 import math
 import json
+import pickle
 import statistics
 import sys
 import torch
 from torchdyn.numerics.odeint import odeint
+from typing import Any, Callable, Sequence
 
 
 def l2_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
     return (y_true - y_pred).pow(2).mean()
 
 
-def get_timepoints(t_span: tuple[int, int], time_scale: int = 30) -> torch.Tensor:
+def get_timepoints(
+    t_span_min: int, t_span_max: int, time_scale: int = 30
+) -> torch.Tensor:
+    """
+    Expand the time span into a sequence of time points
+
+    Args:
+        t_span_min (int): minimum time span
+        t_span_max (int): maximum time span
+        time_scale (int): time scale factor
+
+    Returns:
+        torch.Tensor: sequence of time points
+    """
     return torch.linspace(
-        t_span[0], t_span[1], int(time_scale * (t_span[1] - t_span[0]))
+        t_span_min, t_span_max, int(time_scale * (t_span_max - t_span_min))
     )
 
 
 def permutation_tensor() -> torch.Tensor:
     """
     Constructs the Levi-Civita permutation tensor for 3 dimensions.
+
+    TODO: Generalize to n dimensions
     """
     P = torch.zeros((3, 3, 3))
     P[0, 1, 2] = 1
@@ -31,46 +48,82 @@ def permutation_tensor() -> torch.Tensor:
     return P
 
 
-def integrate_model(
-    model, t_span: tuple[int, int], y0: torch.Tensor, time_scale: int = 30, **kwargs
-):
-    def fun(t, x):
-        if x.ndim == 2:
-            x = x.unsqueeze(0).unsqueeze(0)
-        _x = x.clone().detach().requires_grad_()
-        dx = model.forward(_x).data
-        return dx
-
-    t = get_timepoints(t_span, time_scale)
-    return odeint(fun, t=t, y0=y0, **kwargs)
-
-
 MODEL_BASE_DIR = sys.path[0] + "/../models"
+DATA_BASE_DIR = sys.path[0] + "/../data"
+
+
+def load_data(data_file: str) -> Any:
+    """
+    Load data file from disk
+
+    Args:
+        data_file (str): data file name (without path)
+    """
+    file_path = f"{DATA_BASE_DIR}/{data_file}"
+    print(f"Loading data from {file_path}")
+    with open(file_path, "rb") as file:
+        data = pickle.loads(file.read())
+
+    return data
+
+
+def save_data(data: Any, data_file: str) -> str:
+    """
+    Save data file to disk
+
+    Args:
+        data (Any): data file to save
+        data_file (str): data file name (without path)
+    """
+    if not os.path.exists(DATA_BASE_DIR):
+        os.makedirs(DATA_BASE_DIR)
+
+    file_path = f"{DATA_BASE_DIR}/{data_file}"
+    with open(file_path, "wb") as file:
+        pickle.dump(data, file)
+
+    return file_path
+
+
+def load_or_create_data(
+    data_file: str, create_if_nx: Callable[[], Any] | None = None
+) -> Any:
+    """
+    Load data file from disk, optionally creating new data if not found
+
+    Args:
+        data_file (str): data file name (without path)
+        create_if_nx (Callable[[], Any]): function to create new data if not found
+
+    Returns:
+        Any: loaded or created data
+    """
+    try:
+        return load_data(data_file)
+    except FileNotFoundError:
+        print(f"Data file {data_file} not found.")
+        if create_if_nx is not None:
+            print(f"Creating new data...")
+            data = create_if_nx()
+            save_data(data, data_file)
+
+        return data
 
 
 def save_model(model: torch.nn.Module, run_id: str):
     """
     Save model to disk
+
+    Args:
+        model (torch.nn.Module): model to save
+        run_id (str): a unique identifier for the model
     """
     if not os.path.exists(MODEL_BASE_DIR):
         os.makedirs(MODEL_BASE_DIR)
 
     file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
     print("Saving model to", file_path)
-    model_scripted = torch.jit.script(model)  # Export to TorchScript
-    model_scripted.save(file_path)
-
-
-def save_stats(stats: dict, run_id: str):
-    """
-    Save model stats
-    """
-    if not os.path.exists(MODEL_BASE_DIR):
-        os.makedirs(MODEL_BASE_DIR)
-
-    file_path = f"{MODEL_BASE_DIR}/stats-dynnn-{run_id}.json"
-    print("Saving stats to", file_path)
-    json.dump(stats, open(file_path, "w"))
+    torch.save(model, file_path)
 
 
 def load_model(file_or_timestamp: str) -> torch.nn.Module:
@@ -84,19 +137,56 @@ def load_model(file_or_timestamp: str) -> torch.nn.Module:
         model_file = f"dynnn-{model_file}"
 
     file_path = f"{MODEL_BASE_DIR}/{model_file}"
-    model = torch.jit.load(file_path)
+    model = torch.load("file_path.pth")
     model.eval()
     return model
 
 
-def load_stats(file_or_timestamp: str) -> dict[str, list]:
+def flatten_dict(nested_dict: dict, prefix: str = "") -> dict:
     """
-    Load stats from disk
-    """
-    stats_file = file_or_timestamp
-    if not stats_file.endswith(".json"):
-        stats_file += ".json"
-    if not stats_file.startswith("stats-dynnn-"):
-        stats_file = f"stats-dynnn-{stats_file}"
+    Flattens a nested dictionary into a single-level dictionary.
 
-    return json.load(open(f"{MODEL_BASE_DIR}/{stats_file}"))
+    Args:
+        nested_dict (dict): nested dictionary
+        prefix (str): prefix for keys
+
+    Returns:
+        dict: flattened dictionary
+    """
+    flat_dict = {}
+    for key, value in nested_dict.items():
+        if isinstance(value, dict):
+            flat_dict.update(flatten_dict(value, prefix=prefix + key + "."))
+        else:
+            flat_dict[prefix + key] = value
+    return flat_dict
+
+
+def unflatten_dict(flat_dict: dict) -> dict:
+    """
+    Unflattens a single-level dictionary into a nested dictionary.
+
+    Args:
+        flat_dict (dict): flattened dictionary
+
+    Returns:
+        dict: nested dictionary
+    """
+    nested_dict = {}
+    for key, value in flat_dict.items():
+        parts = key.split(".")
+        current_dict = nested_dict
+        for part in parts[:-1]:
+            if part not in current_dict:
+                current_dict[part] = {}
+            current_dict = current_dict[part]
+        current_dict[parts[-1]] = value
+    return nested_dict
+
+
+def coerce_int(value: Any, allow_none: bool = False) -> int | None:
+    if value is None:
+        if allow_none:
+            return None
+        return 0
+    return int(value)
