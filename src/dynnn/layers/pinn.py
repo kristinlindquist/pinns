@@ -76,7 +76,7 @@ class PINN(nn.Module):
             # assert d_potential is not None
             # return torch.einsum(
             #     "bti,ij->btj",
-            #     d_potential.reshape(d_potential.shape[0], d_potential.shape[1], -1),
+            #     d_potential.reshape(**d_potential.shape[0:2], -1),
             #     self.skew,
             # ).reshape(d_potential.shape)
             raise NotImplementedError("Port-Hamiltonian systems not yet implemented")

@@ -25,7 +25,7 @@ from dynnn.utils import get_timepoints, load_or_create_data
 
 class Mechanics:
     """
-    Classical mechanics system class
+    For modeling physical systems based on equations of motion.
     """
 
     def __init__(
@@ -40,6 +40,7 @@ class Mechanics:
 
         Args:
             get_generator_fn: function returning Hamiltonian function
+            get_initial_conditions: function returning initial conditions
             domain_min (int): minimum domain value
             domain_max (int): maximum domain value
         """
@@ -64,8 +65,10 @@ class Mechanics:
         Args:
             t: Time
             ps_coords: phase space coordinates (n_bodies x 2 x n_dims)
+            generator_type: type of generator (Hamiltonian or Lagrangian)
             model: model to use for time derivative
             function_args: additional arguments for the function
+            traj_id: trajectory ID for logging
         """
         if t is not None and torch.isnan(t):
             raise ValueError("t is NaN")

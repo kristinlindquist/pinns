@@ -3,7 +3,7 @@ from .invariance import (
     RotationallyInvariantLayer,
 )
 
-from .dsn import DynamicallySizedNetwork
+from .dynamic_mlp import DynamicallySizedNetwork
 
 __all__ = [
     "TranslationallyInvariantLayer",

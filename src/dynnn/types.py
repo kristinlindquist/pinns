@@ -281,9 +281,3 @@ class Trajectory(BaseModel):
     dp: torch.Tensor
     t: torch.Tensor
     masses: torch.Tensor
-
-
-class ParameterLossError(ValueError):
-    def __init__(self, message, loss):
-        super().__init__(message)
-        self.loss = loss

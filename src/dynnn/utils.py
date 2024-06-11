@@ -16,6 +16,17 @@ def l2_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
 def get_timepoints(
     t_span_min: int, t_span_max: int, time_scale: int = 30
 ) -> torch.Tensor:
+    """
+    Expand the time span into a sequence of time points
+
+    Args:
+        t_span_min (int): minimum time span
+        t_span_max (int): maximum time span
+        time_scale (int): time scale factor
+
+    Returns:
+        torch.Tensor: sequence of time points
+    """
     return torch.linspace(
         t_span_min, t_span_max, int(time_scale * (t_span_max - t_span_min))
     )
@@ -24,6 +35,8 @@ def get_timepoints(
 def permutation_tensor() -> torch.Tensor:
     """
     Constructs the Levi-Civita permutation tensor for 3 dimensions.
+
+    TODO: Generalize to n dimensions
     """
     P = torch.zeros((3, 3, 3))
     P[0, 1, 2] = 1
@@ -35,25 +48,6 @@ def permutation_tensor() -> torch.Tensor:
     return P
 
 
-def integrate_model(
-    model,
-    t_span_min: int,
-    t_span_max: int,
-    y0: torch.Tensor,
-    time_scale: int = 30,
-    **kwargs,
-):
-    def fun(t, x):
-        if x.ndim == 2:
-            x = x.unsqueeze(0).unsqueeze(0)
-        _x = x.clone().detach().requires_grad_()
-        dx = model.forward(_x).data
-        return dx
-
-    t = get_timepoints(t_span_min, t_span_max, time_scale)
-    return odeint(fun, t=t, y0=y0, **kwargs)
-
-
 MODEL_BASE_DIR = sys.path[0] + "/../models"
 DATA_BASE_DIR = sys.path[0] + "/../data"
 
@@ -61,6 +55,9 @@ DATA_BASE_DIR = sys.path[0] + "/../data"
 def load_data(data_file: str) -> Any:
     """
     Load data file from disk
+
+    Args:
+        data_file (str): data file name (without path)
     """
     file_path = f"{DATA_BASE_DIR}/{data_file}"
     print(f"Loading data from {file_path}")
@@ -73,6 +70,10 @@ def load_data(data_file: str) -> Any:
 def save_data(data: Any, data_file: str) -> str:
     """
     Save data file to disk
+
+    Args:
+        data (Any): data file to save
+        data_file (str): data file name (without path)
     """
     if not os.path.exists(DATA_BASE_DIR):
         os.makedirs(DATA_BASE_DIR)
@@ -89,6 +90,13 @@ def load_or_create_data(
 ) -> Any:
     """
     Load data file from disk, optionally creating new data if not found
+
+    Args:
+        data_file (str): data file name (without path)
+        create_if_nx (Callable[[], Any]): function to create new data if not found
+
+    Returns:
+        Any: loaded or created data
     """
     try:
         return load_data(data_file)
@@ -105,6 +113,10 @@ def load_or_create_data(
 def save_model(model: torch.nn.Module, run_id: str):
     """
     Save model to disk
+
+    Args:
+        model (torch.nn.Module): model to save
+        run_id (str): a unique identifier for the model
     """
     if not os.path.exists(MODEL_BASE_DIR):
         os.makedirs(MODEL_BASE_DIR)
@@ -112,18 +124,6 @@ def save_model(model: torch.nn.Module, run_id: str):
     file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
     print("Saving model to", file_path)
     torch.save(model, file_path)
-
-
-def save_stats(stats: dict, run_id: str):
-    """
-    Save model stats
-    """
-    if not os.path.exists(MODEL_BASE_DIR):
-        os.makedirs(MODEL_BASE_DIR)
-
-    file_path = f"{MODEL_BASE_DIR}/stats-dynnn-{run_id}.json"
-    print("Saving stats to", file_path)
-    json.dump(stats, open(file_path, "w"))
 
 
 def load_model(file_or_timestamp: str) -> torch.nn.Module:
@@ -142,22 +142,16 @@ def load_model(file_or_timestamp: str) -> torch.nn.Module:
     return model
 
 
-def load_stats(file_or_timestamp: str) -> dict[str, list]:
-    """
-    Load stats from disk
-    """
-    stats_file = file_or_timestamp
-    if not stats_file.endswith(".json"):
-        stats_file += ".json"
-    if not stats_file.startswith("stats-dynnn-"):
-        stats_file = f"stats-dynnn-{stats_file}"
-
-    return json.load(open(f"{MODEL_BASE_DIR}/{stats_file}"))
-
-
-def flatten_dict(nested_dict: dict, prefix="") -> dict:
+def flatten_dict(nested_dict: dict, prefix: str = "") -> dict:
     """
     Flattens a nested dictionary into a single-level dictionary.
+
+    Args:
+        nested_dict (dict): nested dictionary
+        prefix (str): prefix for keys
+
+    Returns:
+        dict: flattened dictionary
     """
     flat_dict = {}
     for key, value in nested_dict.items():
@@ -171,6 +165,12 @@ def flatten_dict(nested_dict: dict, prefix="") -> dict:
 def unflatten_dict(flat_dict: dict) -> dict:
     """
     Unflattens a single-level dictionary into a nested dictionary.
+
+    Args:
+        flat_dict (dict): flattened dictionary
+
+    Returns:
+        dict: nested dictionary
     """
     nested_dict = {}
     for key, value in flat_dict.items():

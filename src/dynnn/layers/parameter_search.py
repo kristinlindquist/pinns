@@ -51,7 +51,7 @@ class SampledRangeOutputLayer(torch.nn.Module):
         return torch.stack(scaled_outputs), sampled_outputs, distribution
 
 
-class SimulatorModel(torch.nn.Module):
+class ParameterSearchModel(torch.nn.Module):
     """
     RL model for exploring simulation parameter space
     """
@@ -62,7 +62,7 @@ class SimulatorModel(torch.nn.Module):
         output_ranges: OutputRanges,
         hidden_dim: int = 64,
     ):
-        super(SimulatorModel, self).__init__()
+        super(ParameterSearchModel, self).__init__()
         action_dim = len(output_ranges)
 
         self.layers = torch.nn.Sequential(

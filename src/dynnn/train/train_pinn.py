@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from dynnn.layers.pinn import PINN
 from dynnn.types import PinnStats, TrainingArgs
-from dynnn.utils import save_model, save_stats
+from dynnn.utils import save_model
 
 
 def default_loss_fn(dxdt, dxdt_hat, s, masses):
@@ -19,7 +19,7 @@ def default_loss_fn(dxdt, dxdt_hat, s, masses):
     return loss, addtl_loss
 
 
-def pinn_train(
+def train_pinn(
     args: TrainingArgs,
     data: dict,
     model: torch.nn.Module,
@@ -91,8 +91,6 @@ def pinn_train(
 
         if step % args.steps_per_epoch == 0:
             if (step / args.steps_per_epoch) >= args.min_epochs:
-                # save_stats(stats.model_dump(), run_id=run_id)
-
                 val_metric = test_loss.item()
                 if val_metric < best_metric - args.tolerance:
                     print(
