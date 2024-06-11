@@ -131,23 +131,17 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
         masses (torch.Tensor): Tensor containing masses of particles
     """
     if len(masses.shape) == 1:
-        # Reshape from (n_bodies,) to (n_bodies, 1)
         masses = masses.unsqueeze(-1)
 
-    # Ensure masses can broadcast correctly with velocities
-    if len(velocities.shape) >= 3:
-        masses = masses.reshape(
-            *([1] * (len(velocities.shape) - 2)), masses.shape[0], 1
-        )
+    masses = masses.expand(velocities.shape)
 
+    # sum along n_bodies dimension
     kinetic_energy = torch.sum(0.5 * masses * velocities**2, dim=-1)
 
     # Average the kinetic energies over all particles
-    if kinetic_energy.dim() > 1:
-        # If we have timepoints, average across all particles for each timepoint
-        return kinetic_energy.mean(dim=-1)
-
-    return kinetic_energy.mean()
+    # If we have timepoints, average across all particles for each timepoint
+    mean_dim = -1 if velocities.dim() > 1 else 0
+    return kinetic_energy.mean(dim=mean_dim)
 
 
 def calc_total_energy(
@@ -158,6 +152,8 @@ def calc_total_energy(
 ):
     """
     Compute the total energy of a system.
+
+    Returns a tensor of shape (timepoints)
     """
     kinetic_energy = calc_kinetic_energy(v, masses)
     potential_energy = potential_fn(q)
@@ -182,8 +178,8 @@ def energy_conservation_loss(
     q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
     energy = calc_total_energy(q, v, masses, potential_fn)
 
-    # Compute the difference in energy between each timepoint (dim 1)
-    energy_diff = torch.abs(torch.diff(energy, dim=1)).sum(dim=1)
+    # Compute the difference in energy between each timepoint
+    energy_diff = torch.abs(torch.diff(energy, dim=0)).sum()
 
     return energy_diff.mean() * 100
 
