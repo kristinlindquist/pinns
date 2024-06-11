@@ -178,7 +178,9 @@ def simulator_train(
             valid_action = SimulatorState.load_rl_params(action, state_dict)
             next_state, reward, is_done = env.step(valid_action)
 
-            loss = -reward
+            log_prob = distribution.log_prob(action)
+            loss = -log_prob * reward
+
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(sbn.parameters(), max_norm=1.0)
