@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from typing import Any, Literal
 
 
-from .enums import GeneratorType, OdeSolver
+from .enums import GeneratorType, OdeSolver, VectorField
 from .types import ForcedInt, ForcedIntOrNone
 
 MAX_N_BODIES = 50
@@ -95,10 +95,12 @@ class PinnModelArgs(HasSimulatorArgs):
 
     domain_min: ForcedInt = Field(0, decorator=rl_param, ge=-1000, le=1000)
     domain_max: ForcedInt = Field(10, decorator=rl_param, ge=-1000, le=1000)
-    vector_field_type: Literal["solenoidal", "conservative", "port", "both"] = (
-        "conservative"
-    )
+
+    # type of vector field to attempt to learn
+    vector_field_type: VectorField = VectorField.CONSERVATIVE
     hidden_dim: ForcedInt = Field(500, decorator=rl_param, ge=8, le=4096)
+
+    # use invariant layers to improve learning rate
     use_invariant_layer: bool = False
 
     @model_validator(mode="after")
@@ -116,7 +118,9 @@ class DatasetArgs(HasSimulatorArgs):
     Arguments for generating a dataset of trajectories of a dynamical system
     """
 
+    # number of distinct trajectories to generate
     n_samples: ForcedInt = Field(2, decorator=rl_param, ge=2, le=5)
+
     test_split: float = Field(0.8, ge=0.1, le=0.9)
 
 
@@ -125,20 +129,30 @@ class TrajectoryArgs(HasSimulatorArgs):
     Arguments for generating a trajectory of a dynamical system with an equation of motion
     """
 
+    # initial conditions
     y0: torch.Tensor | None = None
     masses: torch.Tensor | None = None
+
+    # model to use, if any
+    model: torch.nn.Module | None = None
+
     n_bodies: ForcedIntOrNone = Field(
         5, decorator=rl_param, ge=MIN_N_BODIES, le=MAX_N_BODIES
     )
     n_dims: ForcedInt = Field(3, ge=1, le=6)  # decorator=rl_param)
+
+    # type of EOM generator
+    generator_type: GeneratorType = GeneratorType.HAMILTONIAN
+
+    # time parameters
     time_scale: ForcedInt = Field(3, decorator=rl_param, ge=1, le=10)
-    model: torch.nn.Module | None = None
+    t_span_min: ForcedInt = Field(0, decorator=rl_param, ge=0, le=3)
+    t_span_max: ForcedInt = Field(3, decorator=rl_param, ge=4, le=15)
+
+    # ODE solver parameters
     odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-3)  # , decorator=rl_param)
     odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-3)  # , decorator=rl_param)
     odeint_solver: OdeSolver = OdeSolver.TSIT5
-    t_span_min: ForcedInt = Field(0, decorator=rl_param, ge=0, le=3)
-    t_span_max: ForcedInt = Field(3, decorator=rl_param, ge=4, le=15)
-    generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
     @model_validator(mode="after")
     def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:

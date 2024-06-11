@@ -70,9 +70,6 @@ class Mechanics:
             function_args: additional arguments for the function
             traj_id: trajectory ID for logging
         """
-        if t is not None and torch.isnan(t):
-            raise ValueError("t is NaN")
-
         if traj_id in self.log:
             self.log[traj_id].append(t)
             if len(self.log[traj_id]) % 500 == 0:

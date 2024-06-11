@@ -6,7 +6,7 @@ from itertools import permutations
 import math
 
 from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
-from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs
+from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs, VectorField
 from dynnn.utils import permutation_tensor
 
 
@@ -25,9 +25,12 @@ class PINN(nn.Module):
     ):
         super(PINN, self).__init__()
         self.input_dim = math.prod(input_dims)
+
         self.P = permutation_tensor()  # Levi-Civita permutation tensor
         self.M = nn.Parameter(torch.randn(self.input_dim, self.input_dim))
+
         self.field_type = args.vector_field_type
+
         self.invariant_layer = TranslationallyInvariantLayer()
         self.use_invariant_layer = args.use_invariant_layer
 
@@ -64,10 +67,10 @@ class PINN(nn.Module):
         # split the potentials into scalar and vector components
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
 
-        if self.field_type == "none":
+        if self.field_type == VectorField.NONE:
             return potentials
 
-        if self.field_type == "port":
+        if self.field_type == VectorField.PORT:
             # # TODO: skew invariance matrix for variable in/out sizes...
             # d_potential = torch.autograd.grad(
             #     [potentials.sum()], [x], create_graph=True
@@ -85,7 +88,7 @@ class PINN(nn.Module):
         conservative_field = torch.zeros_like(x)
         solenoidal_field = torch.zeros_like(x)
 
-        if self.field_type in ["both", "conservative"]:
+        if self.field_type in [VectorField.HELMHOLTZ, VectorField.CONSERVATIVE]:
             """
             Conservative: models energy-conserving physical systems; irrotational (vanishing curl).
 
@@ -105,7 +108,7 @@ class PINN(nn.Module):
             assert d_scalar_potential is not None
             conservative_field = d_scalar_potential
 
-        if self.field_type in ["both", "solenoidal"]:
+        if self.field_type in [VectorField.HELMHOLTZ, VectorField.SOLENOIDAL]:
             """
             Solenoidal: a vector field with zero divergence (aka no sources or sinks).
             """
