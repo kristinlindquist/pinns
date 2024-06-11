@@ -1,4 +1,3 @@
-import os, pickle
 import time
 from typing import Any, Callable, overload
 import torch
@@ -21,7 +20,7 @@ from dynnn.types import (
     Trajectory,
     TrajectoryArgs,
 )
-from dynnn.utils import get_timepoints
+from dynnn.utils import get_timepoints, load_or_create_data
 
 
 class Mechanics:
@@ -191,18 +190,10 @@ class Mechanics:
             trajectory_args.filename,
         ]
 
-        pickle_path = f"mve_data-{'-'.join(filename_parts)}.pkl"
-
-        if os.path.exists(pickle_path):
-            print(f"Loading data from {pickle_path}")
-            with open(pickle_path, "rb") as file:
-                data = pickle.loads(file.read())
-        else:
-            print(f"Creating data... ({pickle_path})")
-            data = self._get_dataset(args, trajectory_args)
-            print(f"Saving data to {pickle_path}")
-            with open(pickle_path, "wb") as file:
-                pickle.dump(data, file)
+        data_file = f"mve_data-{'-'.join(filename_parts)}.pkl"
+        data = load_or_create_data(
+            data_file, lambda: self._get_dataset(args, trajectory_args)
+        )
 
         runtime = time.time() - start
 

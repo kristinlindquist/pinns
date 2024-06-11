@@ -1,11 +1,12 @@
 import os
 import math
 import json
+import pickle
 import statistics
 import sys
 import torch
 from torchdyn.numerics.odeint import odeint
-from typing import Sequence
+from typing import Any, Callable, Sequence
 
 
 def l2_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
@@ -54,6 +55,51 @@ def integrate_model(
 
 
 MODEL_BASE_DIR = sys.path[0] + "/../models"
+DATA_BASE_DIR = sys.path[0] + "/../data"
+
+
+def load_data(data_file: str) -> Any:
+    """
+    Load data file from disk
+    """
+    file_path = f"{DATA_BASE_DIR}/{data_file}"
+    print(f"Loading data from {file_path}")
+    with open(file_path, "rb") as file:
+        data = pickle.loads(file.read())
+
+    return data
+
+
+def save_data(data: Any, data_file: str) -> str:
+    """
+    Save data file to disk
+    """
+    if not os.path.exists(DATA_BASE_DIR):
+        os.makedirs(DATA_BASE_DIR)
+
+    file_path = f"{DATA_BASE_DIR}/{data_file}"
+    with open(file_path, "wb") as file:
+        pickle.dump(data, file)
+
+    return file_path
+
+
+def load_or_create_data(
+    data_file: str, create_if_nx: Callable[[], Any] | None = None
+) -> Any:
+    """
+    Load data file from disk, optionally creating new data if not found
+    """
+    try:
+        return load_data(data_file)
+    except FileNotFoundError:
+        print(f"Data file {data_file} not found.")
+        if create_if_nx is not None:
+            print(f"Creating new data...")
+            data = create_if_nx()
+            save_data(data, data_file)
+
+        return data
 
 
 def save_model(model: torch.nn.Module, run_id: str):
@@ -65,7 +111,6 @@ def save_model(model: torch.nn.Module, run_id: str):
 
     file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
     print("Saving model to", file_path)
-    # model_scripted = torch.jit.script(model)  # Export to TorchScript
     torch.save(model, file_path)
 
 
@@ -92,7 +137,6 @@ def load_model(file_or_timestamp: str) -> torch.nn.Module:
         model_file = f"dynnn-{model_file}"
 
     file_path = f"{MODEL_BASE_DIR}/{model_file}"
-    # model = torch.jit.load(file_path)
     model = torch.load("file_path.pth")
     model.eval()
     return model
