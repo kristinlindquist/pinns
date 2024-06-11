@@ -1,10 +1,23 @@
 import torch
-from torch.distributions import RelaxedOneHotCategorical
+from torch.distributions import Categorical, Distribution, RelaxedOneHotCategorical
 
 OutputRanges = dict[str, tuple[int, int] | tuple[float, float]]
 
 
-class RangeOutputLayer(torch.nn.Module):
+class SampledRangeOutputLayer(torch.nn.Module):
+    """
+    An output layer that
+    1) scales outputs according to their specified ranges
+    2) samples from a distribution to provide a policy gradient
+
+    Args:
+        input_size: size of input tensor
+        output_ranges: dictionary of output ranges
+
+    Model outputs:
+        tuple[torch.Tensor, Distribution]: scaled outputs and distribution
+    """
+
     def __init__(
         self,
         input_size: int,
@@ -14,9 +27,7 @@ class RangeOutputLayer(torch.nn.Module):
         self.output_ranges = output_ranges
         self.linear = torch.nn.Linear(input_size, len(output_ranges))
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.distributions.Distribution]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, Distribution]:
         logits = self.linear(x)
         sigmoid_outputs = torch.sigmoid(logits)
         distribution = RelaxedOneHotCategorical(1.0, logits=sigmoid_outputs)
@@ -54,10 +65,8 @@ class SimulatorModel(torch.nn.Module):
             torch.nn.Linear(state_dim, hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Linear(hidden_dim, action_dim),
-            RangeOutputLayer(action_dim, output_ranges),
+            SampledRangeOutputLayer(action_dim, output_ranges),
         )
 
-    def forward(
-        self, state: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.distributions.Distribution]:
+    def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, Distribution]:
         return self.layers(state)
