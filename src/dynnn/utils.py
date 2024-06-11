@@ -8,46 +8,6 @@ import torch
 from torchdyn.numerics.odeint import odeint
 from typing import Any, Callable, Sequence
 
-
-def l2_loss(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
-    return (y_true - y_pred).pow(2).mean()
-
-
-def get_timepoints(
-    t_span_min: int, t_span_max: int, time_scale: int = 30
-) -> torch.Tensor:
-    """
-    Expand the time span into a sequence of time points
-
-    Args:
-        t_span_min (int): minimum time span
-        t_span_max (int): maximum time span
-        time_scale (int): time scale factor
-
-    Returns:
-        torch.Tensor: sequence of time points
-    """
-    return torch.linspace(
-        t_span_min, t_span_max, int(time_scale * (t_span_max - t_span_min))
-    )
-
-
-def permutation_tensor() -> torch.Tensor:
-    """
-    Constructs the Levi-Civita permutation tensor for 3 dimensions.
-
-    TODO: Generalize to n dimensions
-    """
-    P = torch.zeros((3, 3, 3))
-    P[0, 1, 2] = 1
-    P[1, 2, 0] = 1
-    P[2, 0, 1] = 1
-    P[2, 1, 0] = -1
-    P[1, 0, 2] = -1
-    P[0, 2, 1] = -1
-    return P
-
-
 MODEL_BASE_DIR = sys.path[0] + "/../models"
 DATA_BASE_DIR = sys.path[0] + "/../data"
 
@@ -185,6 +145,16 @@ def unflatten_dict(flat_dict: dict) -> dict:
 
 
 def coerce_int(value: Any, allow_none: bool = False) -> int | None:
+    """
+    Coerce value to an integer
+
+    Args:
+        value (Any): value to coerce
+        allow_none (bool): allow None values (otherwise, None -> 0.0)
+
+    Returns:
+        int | None: coerced integer value
+    """
     if value is None:
         if allow_none:
             return None

@@ -1,3 +1,8 @@
+"""
+MVE Ensemble Mechanics
+(subclass of `Mechanics` for an MVE ensemble)
+"""
+
 from typing import overload, Callable
 from multimethod import multidispatch
 import torch
@@ -165,6 +170,7 @@ def energy_conservation_loss(
     ps_coords_hat: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
+    loss_weight: float = 100,
 ) -> torch.Tensor:
     """
     Compute total energy difference of a system over time. Should be zero.
@@ -174,17 +180,21 @@ def energy_conservation_loss(
         ps_coords_hat (torch.Tensor): Predicted phase space coords (n_bodies x 2 x n_dims)
         masses (torch.Tensor): Masses of each particle (n_bodies)
         potential_fn (callable): Function that computes the potential energy given positions
+        loss_weight (float): Weight to apply to the loss
     """
     q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
+
+    # Compute the total energy of the system
     energy = calc_total_energy(q, v, masses, potential_fn)
 
     # Compute the difference in energy between each timepoint
     energy_diff = torch.abs(torch.diff(energy, dim=0)).sum()
 
-    return energy_diff.mean() * 100
+    # Return the mean energy difference, scaled up
+    return energy_diff.mean() * loss_weight
 
 
-def mve_ensemble_h_fn(
+def mve_hamiltonian_fn(
     ps_coords: torch.Tensor,
     masses: torch.Tensor,
     potential_fn=calc_lennard_jones_potential,
@@ -204,7 +214,7 @@ def mve_ensemble_h_fn(
     return calc_total_energy(r, v, masses, potential_fn)
 
 
-def mve_ensemble_l_fn(
+def mve_lagrangian_fn(
     r: torch.Tensor,
     v: torch.Tensor,
     masses: torch.Tensor,
@@ -248,9 +258,9 @@ class MveEnsembleMechanics(Mechanics):
 
         _get_generator_fn = lambda masses, generator_type: partial(
             (
-                mve_ensemble_l_fn
+                mve_lagrangian_fn
                 if generator_type == GeneratorType.LAGRANGIAN
-                else mve_ensemble_h_fn
+                else mve_hamiltonian_fn
             ),
             masses=masses,
             potential_fn=self.potential_fn,

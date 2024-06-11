@@ -1,8 +1,6 @@
 import torch
 from typing import Callable
 import torch.autograd.functional as AF
-import math
-from itertools import permutations, combinations, combinations_with_replacement
 
 
 def _lagrangian_equation_of_motion(

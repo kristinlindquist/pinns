@@ -7,6 +7,10 @@ import torch
 
 
 class TranslationallyInvariantLayer(torch.nn.Module):
+    """
+    Compute translationally invariant features from a set of particle positions.
+    """
+
     def __init__(self):
         super(TranslationallyInvariantLayer, self).__init__()
 
@@ -24,7 +28,8 @@ class RotationallyInvariantLayer(torch.nn.Module):
     """
     Compute rotationally invariant features from a set of particle positions.
 
-    NOTE: this decreases the model's ability to learn. Don't use.
+    NOTE: this might be buggy, perhaps mishandling dimensions.
+    Its use results in very bad learning performance.
 
     self.invariant_layer = torch.nn.Sequential(
         RotationallyInvariantLayer(),
