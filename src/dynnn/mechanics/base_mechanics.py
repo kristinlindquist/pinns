@@ -158,7 +158,7 @@ class Mechanics:
 
         self.log[traj_id] = None
 
-        return Trajectory(q=q, p=p, dq=dqdt, dp=dpdt, t=t)
+        return Trajectory(q=q, p=p, dq=dqdt, dp=dpdt, t=t, masses=masses)
 
     @multidispatch
     def get_dataset(self, args, trajectory_args) -> tuple[dict, int]:
@@ -227,7 +227,9 @@ class Mechanics:
         torch.seed()
         xs, dxs, time = [], [], None
         for s in range(n_samples):
-            q, p, dq, dp, t = self.get_trajectory(trajectory_args).dict().values()
+            q, p, dq, dp, t, masses = (
+                self.get_trajectory(trajectory_args).dict().values()
+            )
 
             if time is None:
                 time = t
@@ -243,7 +245,7 @@ class Mechanics:
 
         # make a train/test split
         split_ix = int(len(data["x"]) * test_split)
-        split_data = {"time": time}
+        split_data = {"masses": masses, "time": time}
         for k in ["x", "dx"]:
             split_data[k], split_data["test_" + k] = (
                 data[k][:split_ix],

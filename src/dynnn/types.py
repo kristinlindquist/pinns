@@ -137,10 +137,16 @@ class DatasetArgs(HasSimulatorParams):
     test_split: float = Field(0.8, ge=0.1, le=0.9)
 
 
+MAX_N_BODIES = 10
+MIN_N_BODIES = 2
+
+
 class TrajectoryArgs(HasSimulatorParams):
     y0: torch.Tensor | None = None
     masses: torch.Tensor | None = None
-    n_bodies: ForcedIntOrNone = Field(5, decorator=rl_param, ge=1, le=10)
+    n_bodies: ForcedIntOrNone = Field(
+        5, decorator=rl_param, ge=MIN_N_BODIES, le=MAX_N_BODIES
+    )
     n_dims: ForcedInt = Field(3, ge=1, le=6)  # decorator=rl_param)
     time_scale: ForcedInt = Field(3, decorator=rl_param, ge=1, le=10)
     model: torch.nn.Module | None = None
@@ -254,6 +260,7 @@ class Trajectory(BaseModel):
     dq: torch.Tensor
     dp: torch.Tensor
     t: torch.Tensor
+    masses: torch.Tensor
 
 
 class ParameterLossError(ValueError):

@@ -1,42 +1,16 @@
 from typing import Literal
 import torch
+from torch import nn
 import torch.autograd.functional as AF
 from itertools import permutations
 import math
 
-from dynnn.layers import TranslationallyInvariantLayer
+from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
+from dynnn.types import MIN_N_BODIES, MAX_N_BODIES
 from dynnn.utils import permutation_tensor
 
 
-class MLP(torch.nn.Module):
-    """
-    Simple multi-layer perceptron (MLP) for learning vector fields
-    """
-
-    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
-        super(MLP, self).__init__()
-        self.linear1 = torch.nn.Linear(input_dim, hidden_dim)
-        self.linear2 = torch.nn.Linear(hidden_dim, hidden_dim)
-        self.linear3 = torch.nn.Linear(hidden_dim, output_dim)
-        self.nonlinearity = torch.nn.Tanh()
-
-        for layer in [self.linear1, self.linear2, self.linear3]:
-            torch.nn.init.xavier_uniform_(layer.weight)
-            torch.nn.init.zeros_(layer.bias)
-
-        self.module = torch.nn.Sequential(
-            self.linear1,
-            self.nonlinearity,
-            self.linear2,
-            self.nonlinearity,
-            self.linear3,
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.module(x)
-
-
-class PINN(torch.nn.Module):
+class PINN(nn.Module):
     """
     Learn arbitrary vector fields that are sums of conservative and solenoidal fields
 
@@ -53,20 +27,19 @@ class PINN(torch.nn.Module):
         super(PINN, self).__init__()
         self.input_dim = math.prod(input_dims)
         self.P = permutation_tensor()  # Levi-Civita permutation tensor
-        self.M = torch.nn.Parameter(torch.randn(self.input_dim, self.input_dim))
-        self.input_dims = input_dims
+        self.M = nn.Parameter(torch.randn(self.input_dim, self.input_dim))
         self.field_type = field_type
         self.invariant_layer = TranslationallyInvariantLayer()
         self.use_invariant_layer = True
 
-        self.model = MLP(self.input_dim, hidden_dim, self.input_dim)
-
-        # a smooth, rapidly decaying 3d vector field can be decomposed into a conservative and solenoidal field
-        # https://en.wikipedia.org/wiki/Helmholtz_decomposition
-        if field_type != "both":
-            print(
-                f"Warning: a field_type of {field_type} might not capture the full dynamics of the system."
-            )
+        self.model = DynamicallySizedNetwork(
+            self.input_dim,
+            hidden_dim,
+            self.input_dim,
+            dynamic_dim=2,
+            dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
+            dynamic_multiplier=math.prod(input_dims[1:]),
+        )
 
     def skew(self):
         """
@@ -80,14 +53,14 @@ class PINN(torch.nn.Module):
 
         x size: batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims
         """
-        if self.use_invariant_layer:
-            invariant_features = self.invariant_layer(x)
-            potentials = self.model(invariant_features).reshape(x.shape)
-        else:
-            potentials = self.model(x.reshape(x.shape[0], x.shape[1], -1)).reshape(
-                x.shape
-            )
+        # if self.use_invariant_layer:
+        #     invariant_features = self.invariant_layer(x)
+        #     potentials = self.model(invariant_features).reshape(x.shape)
 
+        # get the potentials from the MLP
+        potentials = self.model(x)
+
+        # split the potentials into scalar and vector components
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
 
         if self.field_type == "none":

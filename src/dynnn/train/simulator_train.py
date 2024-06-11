@@ -15,6 +15,7 @@ from dynnn.types import (
     ParameterLossError,
     PinnStats,
     SimulatorParams,
+    MAX_N_BODIES,
 )
 
 
@@ -87,10 +88,12 @@ class SimulatorEnv:
         args: dict,
         initial_state: SimulatorState,
         pinn: torch.nn.Module,
+        pinn_loss_fn: Callable | None = None,
         max_steps: int = 1000,
     ):
         self.initial_state = initial_state
         self.pinn = pinn
+        self.pinn_loss_fn = pinn_loss_fn
         self.max_steps = max_steps
         self.current_state = None
         self.current_step = 0
@@ -124,7 +127,9 @@ class SimulatorEnv:
             action.params.dataset_args, action.params.trajectory_args
         )
         # train model
-        _, stats = pinn_train(self.args, data, model=self.pinn)
+        _, stats = pinn_train(
+            self.args, data, model=self.pinn, loss_fn=self.pinn_loss_fn
+        )
         return SimulatorState(
             params=params,
             stats=stats,
@@ -148,7 +153,10 @@ class SimulatorEnv:
 
 
 def simulator_train(
-    args: dict, canonical_data: dict = {}, plot_loss_callback: Callable | None = None
+    args: dict,
+    canonical_data: dict = {},
+    plot_loss_callback: Callable | None = None,
+    pinn_loss_fn: Callable | None = None,
 ) -> tuple[torch.nn.Module, dict]:
     """
     Training loop for the RL model
@@ -158,11 +166,9 @@ def simulator_train(
         state_dim=initial_state.num_rl_params,
         output_ranges=initial_state.rl_param_sizes_flat,
     )
-    pinn = PINN(
-        (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
-    )
+    pinn = PINN((100, 2, 3), args.hidden_dim, field_type=args.field_type)
 
-    env = SimulatorEnv(args, initial_state, pinn)
+    env = SimulatorEnv(args, initial_state, pinn, pinn_loss_fn=pinn_loss_fn)
     optimizer = torch.optim.Adam(
         sbn.parameters(), lr=args.learn_rate, weight_decay=args.weight_decay
     )

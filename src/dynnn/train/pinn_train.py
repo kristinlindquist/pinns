@@ -9,45 +9,39 @@ from dynnn.types import PinnStats
 from dynnn.utils import save_model, save_stats
 
 
+def default_loss_fn(dxdt, dxdt_hat, s, masses):
+    """
+    Calculate the loss
+    """
+    loss = F.mse_loss(dxdt, dxdt_hat)
+    addtl_loss = torch.tensor(0.0)
+
+    return loss, addtl_loss
+
+
 def pinn_train(
     args: dict,
     data: dict,
+    model: torch.nn.Module,
     plot_loss_callback: Callable | None = None,
-    model: torch.nn.Module | None = None,
+    loss_fn: Callable | None = None,
 ) -> tuple[torch.nn.Module, dict]:
     """
-    Training loop for DNN
+    Training loop for the PINN
     """
-
-    def calc_loss(dxdt, dxdt_hat, s):
-        """
-        Calculate the loss
-        """
-        loss = F.mse_loss(dxdt, dxdt_hat)
-        addtl_loss = None
-
-        if args.additional_loss is not None:
-            addtl_loss = args.additional_loss(s, s + dxdt_hat * 0.01).sum()
-            loss += addtl_loss
-
-        return loss, addtl_loss
-
     torch.set_default_device(args.device)
-
-    if model is None:
-        model = PINN(
-            (args.n_bodies, 2, args.n_dims), args.hidden_dim, field_type=args.field_type
-        )
 
     optim = torch.optim.Adam(
         model.parameters(), args.learn_rate, weight_decay=args.weight_decay
     )
+    calc_loss = loss_fn or default_loss_fn
 
     # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
-    x = data["x"].clone().detach().requires_grad_().to(args.device)
-    test_x = data["test_x"].clone().detach().requires_grad_().to(args.device)
-    dxdt = data["dx"].clone().detach().requires_grad_().to(args.device)
-    test_dxdt = data["test_dx"].clone().detach().requires_grad_().to(args.device)
+    x = data["x"].clone().detach().requires_grad_()
+    test_x = data["test_x"].clone().detach().requires_grad_()
+    dxdt = data["dx"].clone().detach().requires_grad_()
+    test_dxdt = data["test_dx"].clone().detach().requires_grad_()
+    masses = data["masses"].clone().detach().requires_grad_()
 
     run_id = time.time()
     counter = 0
@@ -59,9 +53,8 @@ def pinn_train(
         ### train ###
         model.train()
         optim.zero_grad()
-        idxs = torch.randperm(x.shape[0])[: args.batch_size]
-        dxdt_hat = model.forward(x[idxs])
-        loss, additional_loss = calc_loss(dxdt[idxs], dxdt_hat, x[idxs])
+        dxdt_hat = model.forward(x)
+        loss, additional_loss = calc_loss(dxdt, dxdt_hat, x, masses)
         loss.backward()
 
         # with torch.autograd.profiler.profile() as prof:
@@ -73,10 +66,9 @@ def pinn_train(
 
         ### test ###
         model.eval()
-        test_idxs = torch.randperm(test_x.shape[0])[: args.batch_size]
-        test_dxdt_hat = model.forward(test_x[test_idxs])  # .detach()
+        test_dxdt_hat = model.forward(test_x)  # .detach()
         test_loss, test_additional_loss = calc_loss(
-            test_dxdt[test_idxs], test_dxdt_hat, test_x[test_idxs]
+            test_dxdt, test_dxdt_hat, test_x, masses
         )
 
         stats.train_loss.append(loss)
