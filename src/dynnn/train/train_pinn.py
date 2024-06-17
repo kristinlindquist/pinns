@@ -119,11 +119,12 @@ def train_pinn(
     test_dist = (test_dxdt - test_dxdt_hat) ** 2
 
     print(
-        "Final train loss {:.4e} +/- {:.4e}\nFinal test loss {:.4e} +/- {:.4e}".format(
+        "Final train loss {:.4e} +/- {:.4e}\nFinal test loss {:.4e} +/- {:.4e} ({} epochs)".format(
             train_dist.mean().item(),
             train_dist.std().item() / math.sqrt(train_dist.shape[0]),
             test_dist.mean().item(),
             test_dist.std().item() / math.sqrt(test_dist.shape[0]),
+            len(stats.train_loss) // args.steps_per_epoch,
         )
     )
 

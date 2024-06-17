@@ -76,9 +76,9 @@ class Mechanics:
                 progress = self.log[traj_id][-1] - self.log[traj_id][-TRAJ_CHECK_STEPS]
                 if progress < TRAJ_MIN_PROGRESS:
                     print(
-                        f"Trajectory {traj_id}: Not making progress ({progress}); giving up"
+                        f"Trajectory {traj_id}: Stalled ({progress.item()}); giving up"
                     )
-                    raise ValueError("Not making progress")
+                    raise RuntimeError("Trajectory stalled")
 
         # if too many values are NaNs, assume parameter set is invalid
         if len([t for t in self.log[traj_id] if math.isnan(t)]) > MAX_NAN_STEPS:
@@ -256,8 +256,8 @@ class Mechanics:
         fail_count = 0
         count = 0
         while count < n_samples:
-            # try to get a trajectory
             try:
+                # try to get a trajectory
                 q, p, dq, dp, t, masses = (
                     self.get_trajectory(trajectory_args).dict().values()
                 )
@@ -269,6 +269,10 @@ class Mechanics:
                 # otherwise, hope it is transient. try again.
                 fail_count += 1
                 continue
+
+            print(
+                f"Data creation trajectory count: {count} of {n_samples} (failures: {fail_count})"
+            )
 
             if time is None:
                 time = t

@@ -1,10 +1,11 @@
 import torch
+from torch import nn
 from torch.distributions import Categorical, Distribution, RelaxedOneHotCategorical
 
 OutputRanges = dict[str, tuple[int, int] | tuple[float, float]]
 
 
-class SampledRangeOutputLayer(torch.nn.Module):
+class SampledRangeOutputLayer(nn.Module):
     """
     An output layer that
     1) scales outputs according to their specified ranges
@@ -25,7 +26,7 @@ class SampledRangeOutputLayer(torch.nn.Module):
     ):
         super().__init__()
         self.output_ranges = output_ranges
-        self.linear = torch.nn.Linear(input_size, len(output_ranges))
+        self.linear = nn.Linear(input_size, len(output_ranges))
 
     def forward(
         self, x: torch.Tensor
@@ -66,7 +67,7 @@ class SampledRangeOutputLayer(torch.nn.Module):
         return torch.stack(scaled_outputs), sampled_outputs, distribution
 
 
-class ParameterSearchModel(torch.nn.Module):
+class ParameterSearchModel(nn.Module):
     """
     Simple feedforward model for RL parameter search.
 
@@ -83,23 +84,30 @@ class ParameterSearchModel(torch.nn.Module):
         self,
         state_dim: int,
         output_ranges: OutputRanges,
-        hidden_dim: int = 64,
+        hidden_dim: int = 128,
+        rnn_hidden_dim: int = 64,
     ):
         super(ParameterSearchModel, self).__init__()
         action_dim = len(output_ranges)
+        input_dim = state_dim + rnn_hidden_dim
 
-        self.layers = torch.nn.Sequential(
-            torch.nn.Linear(state_dim, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, action_dim),
+        self.rnn = nn.LSTM(state_dim, rnn_hidden_dim, batch_first=True)
+        self.layers = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
             SampledRangeOutputLayer(action_dim, output_ranges),
         )
 
     def forward(
-        self, state: torch.Tensor
+        self, state: torch.Tensor, state_history: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, Distribution]:
         """
         Forward pass through the model.
+
+        Args:
+            state: input tensor (current state)
+            state_history: input tensor (all historical states)
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, Distribution]:
@@ -107,4 +115,7 @@ class ParameterSearchModel(torch.nn.Module):
                 sampled_outputs (used for loss)
                 distribution (used for loss)
         """
-        return self.layers(state)
+        _, (hidden, _) = self.rnn(state_history)
+        distilled_state_history = hidden.squeeze(0)
+
+        return self.layers(torch.concatenate([state, distilled_state_history]))

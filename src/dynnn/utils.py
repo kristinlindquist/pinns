@@ -70,7 +70,7 @@ def load_or_create_data(
         return data
 
 
-def save_model(model: torch.nn.Module, run_id: str):
+def save_model(model: torch.nn.Module, run_id: str, model_name: str = "dynnn"):
     """
     Save model to disk
 
@@ -81,23 +81,23 @@ def save_model(model: torch.nn.Module, run_id: str):
     if not os.path.exists(MODEL_BASE_DIR):
         os.makedirs(MODEL_BASE_DIR)
 
-    file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
+    file_path = f"{MODEL_BASE_DIR}/{model_name}-{run_id}.pt"
     print("Saving model to", file_path)
     torch.save(model, file_path)
 
 
-def load_model(file_or_timestamp: str) -> torch.nn.Module:
+def load_model(file_or_timestamp: str, model_name: str = "dynnn") -> torch.nn.Module:
     """
     Load model from disk
     """
     model_file = file_or_timestamp
     if not model_file.endswith(".pt"):
         model_file += ".pt"
-    if not model_file.startswith("dynnn-"):
-        model_file = f"dynnn-{model_file}"
+    if not model_file.startswith("{model_name}-"):
+        model_file = f"{model_name}-{model_file}"
 
     file_path = f"{MODEL_BASE_DIR}/{model_file}"
-    model = torch.load("file_path.pth")
+    model = torch.load(file_path)
     model.eval()
     return model
 

@@ -135,6 +135,7 @@ class DatasetArgs(HasSimulatorArgs):
 
     # number of distinct trajectories to generate
     n_samples: ForcedInt = Field(5, decorator=RlParam, ge=5, le=25)
+    # n_samples: ForcedInt = Field(2, decorator=RlParam, ge=2, le=5)
 
     test_split: float = Field(0.8, ge=0.1, le=0.9)
 
@@ -160,9 +161,9 @@ class TrajectoryArgs(HasSimulatorArgs):
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
     # time parameters
-    time_scale: ForcedInt = Field(5, decorator=RlParam, ge=3, le=100)
+    time_scale: ForcedInt = Field(10, decorator=RlParam, ge=5, le=100)
     t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
-    t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
+    t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=100)  # 500
 
     # ODE solver parameters
     odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-5, decorator=RlParam)

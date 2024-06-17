@@ -1,9 +1,11 @@
-from typing import Callable
-import torch
 import statistics as math
+import torch
+import time
+from typing import Callable
 
 from dynnn.layers.parameter_search import ParameterSearchModel
 from dynnn.layers.pinn import PINN
+from dynnn.utils import save_model
 
 from .environment import SimulatorEnv
 from .types import SimulatorArgs, SimulatorState
@@ -28,6 +30,8 @@ def train_simulator(
         output_ranges=initial_state.rl_param_sizes_flat,
     )
 
+    psm_run_id = time.time()
+
     # Initialize the PINN model
     pinn = PINN(
         initial_state.params.model_args,
@@ -47,13 +51,18 @@ def train_simulator(
     for experiment in range(args.num_experiments):
         state = env.reset()
         experiment_reward = []
+        state_sequence = []
 
         for step in range(args.max_simulator_steps):
             optimizer.zero_grad()
             state_tensor, state_dict = state.encode_rl_params()
 
+            state_sequence.append(state_tensor)
+
             # Get the action from the state
-            action, unscaled_action, distribution = psm(state_tensor)
+            action, unscaled_action, distribution = psm(
+                state_tensor, torch.stack(state_sequence)
+            )
 
             # validate the action
             valid_action = SimulatorState.load_rl_params(action, state_dict)
@@ -75,6 +84,7 @@ def train_simulator(
             experiment_reward.append(reward.item())
             state = next_state
 
+        save_model(psm, psm_run_id, "param-search")
         print(
             f"Experiment {experiment + 1}: Reward = {math.mean(experiment_reward):.2f}"
         )
