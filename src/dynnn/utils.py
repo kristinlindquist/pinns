@@ -20,7 +20,7 @@ def load_data(data_file: str) -> Any:
         data_file (str): data file name (without path)
     """
     file_path = f"{DATA_BASE_DIR}/{data_file}"
-    print(f"Loading data from {file_path}")
+    print(f"Attempting to load data from {file_path}")
     with open(file_path, "rb") as file:
         data = pickle.loads(file.read())
 
@@ -160,3 +160,28 @@ def coerce_int(value: Any, allow_none: bool = False) -> int | None:
             return None
         return 0
     return int(value)
+
+
+def round_to_mantissa(number: float, precision: int = 0) -> float:
+    """
+    Round a number to a specified precision
+
+    Args:
+        number (float): number to round
+        precision (int): number of decimal places for mantissa
+
+    Returns:
+        float: rounded number
+
+    Examples:
+        >>> round_to_mantissa(0.001346868, 0)
+        0.001
+        >>> round_to_mantissa(3.0788818548899144e-05, 0)
+        3e-05
+    """
+    exponent = math.floor(math.log10(abs(number)))
+    mantissa = number / (10**exponent)
+    rounded_mantissa = round(mantissa, precision)
+
+    # round to handle floating point errors
+    return round(rounded_mantissa * (10**exponent), abs(exponent) + 1)
