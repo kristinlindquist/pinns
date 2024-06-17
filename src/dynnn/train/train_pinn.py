@@ -11,7 +11,7 @@ from dynnn.utils import save_model
 
 def default_loss_fn(dxdt, dxdt_hat, s, masses):
     """
-    Calculate the loss
+    Calculate loss
     """
     loss = F.mse_loss(dxdt, dxdt_hat)
     addtl_loss = torch.tensor(0.0)
@@ -23,6 +23,7 @@ def train_pinn(
     args: PinnTrainingArgs,
     data: dict,
     model: torch.nn.Module,
+    run_id: str | None = None,
     plot_loss_callback: Callable | None = None,
     loss_fn: Callable | None = None,
 ) -> tuple[torch.nn.Module, dict]:
@@ -41,7 +42,7 @@ def train_pinn(
     test_dxdt = data["test_dx"].clone().detach().requires_grad_()
     masses = data["masses"].clone().detach().requires_grad_()
 
-    run_id = time.time()
+    run_id = run_id or time.time()
     counter = 0
     best_metric = float("inf")
 
@@ -61,6 +62,7 @@ def train_pinn(
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optim.step()
+        ### end train ###
 
         ### test ###
         model.eval()
@@ -68,42 +70,48 @@ def train_pinn(
         test_loss, test_additional_loss = calc_loss(
             test_dxdt, test_dxdt_hat, test_x, masses
         )
+        ### end test ###
 
         stats.train_loss.append(loss)
         stats.test_loss.append(test_loss)
         stats.train_additional_loss.append(additional_loss)
         stats.test_additional_loss.append(test_additional_loss)
 
+        # callback & log stats for every step, until the first epoch
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
-            # callback & log stats for every step, until the first epoch
             if plot_loss_callback is not None:
                 plot_loss_callback(stats)
 
-            print(
-                "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
-                    step,
-                    loss.item(),
-                    additional_loss.item(),
-                    test_loss.item(),
-                    test_additional_loss.item(),
+            if args.is_verbose:
+                print(
+                    "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
+                        step,
+                        loss.item(),
+                        additional_loss.item(),
+                        test_loss.item(),
+                        test_additional_loss.item(),
+                    )
                 )
-            )
 
-        if step % args.steps_per_epoch == 0:
-            if (step / args.steps_per_epoch) >= args.min_epochs:
-                val_metric = test_loss.item()
-                if val_metric < best_metric - args.tolerance:
+        # early stopping checks
+        if (
+            step % args.steps_per_epoch == 0
+            and (step / args.steps_per_epoch) >= args.min_epochs
+        ):
+            val_metric = test_loss.item()
+            if val_metric < best_metric - args.tolerance:
+                if args.is_verbose:
                     print(
                         f"Val metric improved. {val_metric} < {best_metric} - {args.tolerance}"
                     )
-                    best_metric = val_metric
-                    counter = 0
-                    save_model(model, run_id)
-                else:
-                    counter += 1
-                    if counter >= args.patience:
-                        print("Early stopping triggered. Training stopped.")
-                        break
+                best_metric = val_metric
+                counter = 0
+                save_model(model, run_id)
+            else:
+                counter += 1
+                if counter >= args.patience:
+                    print("Early stopping triggered. Training stopped.")
+                    break
 
     train_dxdt_hat = model.forward(x)
     train_dist = (dxdt - train_dxdt_hat) ** 2
