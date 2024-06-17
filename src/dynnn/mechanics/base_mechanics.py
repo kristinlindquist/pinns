@@ -1,4 +1,5 @@
 from functools import partial
+import math
 from multimethod import multidispatch
 from pydantic import BaseModel
 import time
@@ -23,6 +24,10 @@ from dynnn.utils import load_or_create_data
 
 
 from .utils import get_timepoints
+
+MAX_NAN_STEPS = 5
+TRAJ_CHECK_STEPS = 500
+TRAJ_MIN_PROGRESS = 1e-3
 
 
 class Mechanics:
@@ -52,6 +57,31 @@ class Mechanics:
         self.domain_max = domain_max
         self.log = {}
 
+    def track_trajectory(self, traj_id: str, t: torch.Tensor | None) -> None:
+        """
+        Track trajectory progress (logging & detection that we're going nowhere)
+        """
+        # t == None means we're not called by ode_solver
+        if t is None:
+            return
+
+        self.log[traj_id].append(t)
+        if len(self.log[traj_id]) % TRAJ_CHECK_STEPS == 0:
+            print(f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})")
+
+        # if too many values are NaNs, assume parameter set is invalid
+        if len([t for t in self.log[traj_id] if math.isnan(t)]) > MAX_NAN_STEPS:
+            print(f"Trajectory {traj_id}: Too many NaNs; giving up")
+            raise ValueError("Too many NaNs")
+
+        # if the timestep is still very tiny, assume we're stuck
+        if (
+            len(self.log[traj_id]) > TRAJ_CHECK_STEPS
+            and self.log[traj_id][-1] < TRAJ_MIN_PROGRESS
+        ):
+            print(f"Trajectory {traj_id}: Not making progress; giving up")
+            raise ValueError("Not making progress")
+
     def dynamics_fn(
         self,
         t: torch.Tensor,
@@ -76,12 +106,8 @@ class Mechanics:
             time derivative of the phase space coordinates (n_bodies x 2 x n_dims)
             based on the specified generator function & equations of motion
         """
-        if traj_id in self.log:
-            self.log[traj_id].append(t)
-            if len(self.log[traj_id]) % 500 == 0:
-                print(
-                    f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})"
-                )
+        # track trajectory, including logging and early stopping
+        self.track_trajectory(traj_id, t)
 
         generator_fn = self.get_generator_fn(
             **function_args, generator_type=generator_type
@@ -151,6 +177,9 @@ class Mechanics:
             atol=args.odeint_atol,
         )[1]
 
+        # clear log (only needed to track within odeint_solver)
+        self.log[traj_id] = None
+
         # -> time_scale*t_span_max x n_bodies x 2 x n_dims
         # for each timepoint, get the time derivative of the phase space coordinates
         dsdt = torch.stack([dynamics_fn(None, st) for st in trajectory])
@@ -160,8 +189,6 @@ class Mechanics:
 
         # -> time_scale*t_span_max x n_bodies x 2
         q, p = trajectory[:, :, 0], trajectory[:, :, 1]
-
-        self.log[traj_id] = None
 
         return Trajectory(q=q, p=p, dq=dqdt, dp=dpdt, t=t, masses=masses)
 

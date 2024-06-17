@@ -4,7 +4,6 @@ import statistics as math
 
 from dynnn.layers.parameter_search import ParameterSearchModel
 from dynnn.layers.pinn import PINN
-from dynnn.train.train_pinn import train_pinn
 
 from .environment import SimulatorEnv
 from .types import SimulatorArgs, SimulatorState
@@ -21,7 +20,6 @@ def train_simulator(
     Explore parameter space for the creation and learning of dynamical system.
     """
     # Initialize the simulator
-
     initial_state = SimulatorState(params=SimulatorArgs())
 
     # Initialize the simulator model
@@ -32,8 +30,8 @@ def train_simulator(
 
     # Initialize the PINN model
     pinn = PINN(
-        (100, 2, initial_state.params.trajectory_args.n_dims),
         initial_state.params.model_args,
+        initial_state.params.trajectory_args.n_dims,
     )
 
     # Initialize the rl environment

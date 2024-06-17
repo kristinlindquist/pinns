@@ -1,7 +1,8 @@
-from typing import Callable
-import torch
 from pydantic import BaseModel
 import statistics as math
+import time
+import torch
+from typing import Callable
 
 from dynnn.simulation.mve_ensemble import MveEnsembleMechanics
 from dynnn.train.train_pinn import train_pinn
@@ -30,6 +31,8 @@ class SimulatorEnv:
         self.pinn_loss_fn = pinn_loss_fn
         self.current_state = None
 
+        self.run_id = time.time()
+
     def reset(self) -> SimulatorState:
         self.current_state = self.initial_state
         return self.current_state
@@ -49,16 +52,23 @@ class SimulatorEnv:
         p = action.params
         mechanics = MveEnsembleMechanics(p.model_args)
 
-        # generate EOM dataset
-        data, sim_duration = mechanics.get_dataset(p.dataset_args, p.trajectory_args)
+        try:
+            # generate EOM dataset
+            data, sim_duration = mechanics.get_dataset(
+                p.dataset_args, p.trajectory_args
+            )
+            _, stats = train_pinn(
+                self.initial_state.params.training_args,
+                data,
+                run_id=self.run_id,
+                model=self.pinn,
+                loss_fn=self.pinn_loss_fn,
+            )
+        except Exception as e:
+            print(f"Failed to generate dataset: {e}")
+            stats = (float("inf"), float("inf"))  # inf loss due to error
+            sim_duration = 0.0
 
-        # train model
-        _, stats = train_pinn(
-            self.initial_state.params.training_args,
-            data,
-            model=self.pinn,
-            loss_fn=self.pinn_loss_fn,
-        )
         return SimulatorState(
             params=p,
             stats=stats,
