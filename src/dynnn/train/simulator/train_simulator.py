@@ -64,6 +64,9 @@ def train_simulator(
             # Compute the loss from the policy gradient
             log_prob = distribution.log_prob(unscaled_action)
             loss = -log_prob * reward
+            print(
+                f"RL Loss: {loss.item()} (Reward: {reward.item()}, log_prob: {log_prob})"
+            )
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(psm.parameters(), max_norm=1.0)

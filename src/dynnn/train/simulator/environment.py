@@ -7,7 +7,7 @@ from typing import Callable
 from dynnn.simulation.mve_ensemble import MveEnsembleMechanics
 from dynnn.train.train_pinn import train_pinn
 
-from .types import SimulatorState
+from .types import SimulatorState, PinnStats
 
 
 class SimulatorEnv:
@@ -66,7 +66,11 @@ class SimulatorEnv:
             )
         except Exception as e:
             print(f"Failed to generate dataset: {e}")
-            stats = (float("inf"), float("inf"))  # inf loss due to error
+            # inf loss due to error
+            stats = PinnStats(
+                train_loss=[torch.tensor(1e10)],
+                test_loss=[torch.tensor(1e10)],
+            )
             sim_duration = 0.0
 
         return SimulatorState(
@@ -87,7 +91,9 @@ class SimulatorEnv:
         var_loss_reduction = (
             old_stats.min_train_loss.detach() - new_stats.min_train_loss.detach()
         )
-        runtime_penalty = (new_state.sim_duration - old_state.sim_duration) * 100
+        runtime_penalty = (new_state.sim_duration - old_state.sim_duration) * 2000
         # canonical_loss_reduction = 0  # TODO
+
+        print(f"Reward: {var_loss_reduction.item()}, (Runtime: {runtime_penalty})")
 
         return var_loss_reduction + runtime_penalty  # + canonical_loss_reduction

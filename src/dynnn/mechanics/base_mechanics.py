@@ -25,9 +25,10 @@ from dynnn.utils import load_or_create_data
 
 from .utils import get_timepoints
 
-MAX_NAN_STEPS = 5
+MAX_NAN_STEPS = 3
 TRAJ_CHECK_STEPS = 500
 TRAJ_MIN_PROGRESS = 1e-3
+MAX_TRAJ_FAILS = 3
 
 
 class Mechanics:
@@ -66,21 +67,23 @@ class Mechanics:
             return
 
         self.log[traj_id].append(t)
-        if len(self.log[traj_id]) % TRAJ_CHECK_STEPS == 0:
-            print(f"Trajectory {traj_id}: {len(self.log[traj_id])} steps (last t: {t})")
+        total_steps = len(self.log[traj_id])
+        if total_steps % TRAJ_CHECK_STEPS == 0:
+            print(f"Trajectory {traj_id}: {total_steps} steps (last t: {t.item()})")
+
+            if total_steps >= TRAJ_CHECK_STEPS * 2:
+                # if the timestep is still very tiny, assume we're stuck
+                progress = self.log[traj_id][-1] - self.log[traj_id][-TRAJ_CHECK_STEPS]
+                if progress < TRAJ_MIN_PROGRESS:
+                    print(
+                        f"Trajectory {traj_id}: Not making progress ({progress}); giving up"
+                    )
+                    raise ValueError("Not making progress")
 
         # if too many values are NaNs, assume parameter set is invalid
         if len([t for t in self.log[traj_id] if math.isnan(t)]) > MAX_NAN_STEPS:
             print(f"Trajectory {traj_id}: Too many NaNs; giving up")
             raise ValueError("Too many NaNs")
-
-        # if the timestep is still very tiny, assume we're stuck
-        if (
-            len(self.log[traj_id]) > TRAJ_CHECK_STEPS
-            and self.log[traj_id][-1] < TRAJ_MIN_PROGRESS
-        ):
-            print(f"Trajectory {traj_id}: Not making progress; giving up")
-            raise ValueError("Not making progress")
 
     def dynamics_fn(
         self,
@@ -250,10 +253,22 @@ class Mechanics:
 
         torch.seed()
         xs, dxs, time = [], [], None
-        for s in range(n_samples):
-            q, p, dq, dp, t, masses = (
-                self.get_trajectory(trajectory_args).dict().values()
-            )
+        fail_count = 0
+        count = 0
+        while count < n_samples:
+            # try to get a trajectory
+            try:
+                q, p, dq, dp, t, masses = (
+                    self.get_trajectory(trajectory_args).dict().values()
+                )
+                count += 1
+            except Exception as e:
+                # if we fail too many times, bubble up the exception
+                if fail_count >= MAX_TRAJ_FAILS:
+                    raise e
+                # otherwise, hope it is transient. try again.
+                fail_count += 1
+                continue
 
             if time is None:
                 time = t

@@ -82,8 +82,8 @@ class PinnTrainingArgs(HasSimulatorArgs):
     n_epochs: ForcedInt = Field(5, ge=50, le=200, decorator=RlParam)
     steps_per_epoch: int = Field(200, ge=100, le=2000)
 
-    learning_rate: float = Field(1e-3, ge=1e-6, le=1e-1)
-    weight_decay: float = Field(1e-4, ge=1e-6, le=1e-1)
+    learning_rate: float = Field(1e-3, ge=1e-7, le=1e-1)
+    weight_decay: float = Field(1e-4, ge=1e-7, le=1e-1)
 
     is_verbose: bool = False
 
@@ -105,8 +105,8 @@ class PinnModelArgs(HasSimulatorArgs):
     Arguments for the PINN model
     """
 
-    domain_min: ForcedInt = Field(0, decorator=RlParam, ge=-1000, le=1000)
-    domain_max: ForcedInt = Field(10, decorator=RlParam, ge=-1000, le=1000)
+    domain_min: ForcedInt = Field(0, decorator=RlParam, ge=-1000, le=0)
+    domain_max: ForcedInt = Field(10, decorator=RlParam, ge=1, le=1000)
 
     # type of vector field to attempt to learn
     vector_field_type: VectorField = VectorField.CONSERVATIVE
@@ -160,13 +160,13 @@ class TrajectoryArgs(HasSimulatorArgs):
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
     # time parameters
-    time_scale: ForcedInt = Field(3, decorator=RlParam, ge=1, le=10)
-    t_span_min: ForcedInt = Field(0, decorator=RlParam, ge=0, le=3)
-    t_span_max: ForcedInt = Field(3, decorator=RlParam, ge=4, le=15)
+    time_scale: ForcedInt = Field(5, decorator=RlParam, ge=3, le=100)
+    t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
+    t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
-    odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-3, decorator=RlParam)
-    odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-3, decorator=RlParam)
+    odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-5, decorator=RlParam)
+    odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-5, decorator=RlParam)
     odeint_solver: OdeSolverType = OdeSolverType.TSIT5
 
     @model_validator(mode="after")
