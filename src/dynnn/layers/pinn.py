@@ -1,9 +1,8 @@
-from typing import Literal
+from itertools import permutations
 import torch
 from torch import nn
 import torch.autograd.functional as AF
-from itertools import permutations
-import math
+from typing import Literal
 
 from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
 from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs, VectorField
@@ -23,27 +22,31 @@ class PINN(nn.Module):
 
     def __init__(
         self,
-        input_dims: tuple[int, int, int],
         args: PinnModelArgs,
+        n_dims: int,
     ):
         super(PINN, self).__init__()
-        self.input_dim = math.prod(input_dims)
 
-        self.P = permutation_tensor()  # Levi-Civita permutation tensor
-        self.M = nn.Parameter(torch.randn(self.input_dim, self.input_dim))
+        # canonical_input_dim * len([q, p]) * n_dims
+        input_dim = args.canonical_input_dim * 2 * n_dims
 
-        self.field_type = args.vector_field_type
+        # Levi-Civita permutation tensor
+        self.P = permutation_tensor()
+
+        # Skew-symmetric matrix
+        self.S = nn.Parameter(torch.randn(input_dim, input_dim))
 
         self.invariant_layer = TranslationallyInvariantLayer()
         self.use_invariant_layer = args.use_invariant_layer
+        self.field_type = args.vector_field_type
 
         self.model = DynamicallySizedNetwork(
-            self.input_dim,
-            args.hidden_dim,
-            self.input_dim,
+            input_dim,
+            args.canonical_hidden_dim,
+            input_dim,
             dynamic_dim=2,
             dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
-            dynamic_multiplier=math.prod(input_dims[1:]),
+            dynamic_multiplier=2 * n_dims,  # len([q, p]) * n_dims
         )
 
     @property
@@ -51,7 +54,7 @@ class PINN(nn.Module):
         """
         Skew-symmetric matrix
         """
-        return 0.5 * (self.M - self.M.T)
+        return 0.5 * (self.S - self.S.T)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
         """
@@ -59,10 +62,9 @@ class PINN(nn.Module):
 
         x size: batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims
         """
-        # TODO
-        # if self.use_invariant_layer:
-        #     invariant_features = self.invariant_layer(x)
-        #     potentials = self.model(invariant_features).reshape(x.shape)
+        if self.use_invariant_layer:
+            # run input through invariant layer(s) first to improve learning rate
+            x = self.invariant_layer(x)
 
         # get the potentials from the MLP
         potentials = self.model(x)
@@ -102,7 +104,7 @@ class PINN(nn.Module):
             i.e. a conservative vector field is completely described by its scalar potential function
             (which is why we're looking at only scalar_potential here)
             """
-            # batch_size, (time_scale*t_span_max) x n_bodies x (len([r, v]) * n_dims)
+            # batch_size, (time_scale*t_span_max) x n_bodies x (len([q, p]) * n_dims)
             d_scalar_potential = torch.autograd.grad(
                 [scalar_potential.sum()],
                 [x],

@@ -20,7 +20,7 @@ def load_data(data_file: str) -> Any:
         data_file (str): data file name (without path)
     """
     file_path = f"{DATA_BASE_DIR}/{data_file}"
-    print(f"Loading data from {file_path}")
+    print(f"Attempting to load data from {file_path}")
     with open(file_path, "rb") as file:
         data = pickle.loads(file.read())
 
@@ -70,7 +70,7 @@ def load_or_create_data(
         return data
 
 
-def save_model(model: torch.nn.Module, run_id: str):
+def save_model(model: torch.nn.Module, run_id: str, model_name: str = "dynnn"):
     """
     Save model to disk
 
@@ -81,23 +81,23 @@ def save_model(model: torch.nn.Module, run_id: str):
     if not os.path.exists(MODEL_BASE_DIR):
         os.makedirs(MODEL_BASE_DIR)
 
-    file_path = f"{MODEL_BASE_DIR}/dynnn-{run_id}.pt"
+    file_path = f"{MODEL_BASE_DIR}/{model_name}-{run_id}.pt"
     print("Saving model to", file_path)
     torch.save(model, file_path)
 
 
-def load_model(file_or_timestamp: str) -> torch.nn.Module:
+def load_model(file_or_timestamp: str, model_name: str = "dynnn") -> torch.nn.Module:
     """
     Load model from disk
     """
     model_file = file_or_timestamp
     if not model_file.endswith(".pt"):
         model_file += ".pt"
-    if not model_file.startswith("dynnn-"):
-        model_file = f"dynnn-{model_file}"
+    if not model_file.startswith("{model_name}-"):
+        model_file = f"{model_name}-{model_file}"
 
     file_path = f"{MODEL_BASE_DIR}/{model_file}"
-    model = torch.load("file_path.pth")
+    model = torch.load(file_path)
     model.eval()
     return model
 
@@ -160,3 +160,28 @@ def coerce_int(value: Any, allow_none: bool = False) -> int | None:
             return None
         return 0
     return int(value)
+
+
+def round_to_mantissa(number: float, precision: int = 0) -> float:
+    """
+    Round a number to a specified precision
+
+    Args:
+        number (float): number to round
+        precision (int): number of decimal places for mantissa
+
+    Returns:
+        float: rounded number
+
+    Examples:
+        >>> round_to_mantissa(0.001346868, 0)
+        0.001
+        >>> round_to_mantissa(3.0788818548899144e-05, 0)
+        3e-05
+    """
+    exponent = math.floor(math.log10(abs(number)))
+    mantissa = number / (10**exponent)
+    rounded_mantissa = round(mantissa, precision)
+
+    # round to handle floating point errors
+    return round(rounded_mantissa * (10**exponent), abs(exponent) + 1)
