@@ -2,6 +2,8 @@ import torch
 from torch import nn
 from torch.distributions import Categorical, Distribution, RelaxedOneHotCategorical
 
+from dynnn.types import SaveableModel
+
 OutputRanges = dict[str, tuple[int, int] | tuple[float, float]]
 
 
@@ -67,7 +69,7 @@ class SampledRangeOutputLayer(nn.Module):
         return torch.stack(scaled_outputs), sampled_outputs, distribution
 
 
-class ParameterSearchModel(nn.Module):
+class ParameterSearchModel(SaveableModel):
     """
     Simple feedforward model for RL parameter search.
 
@@ -82,12 +84,14 @@ class ParameterSearchModel(nn.Module):
 
     def __init__(
         self,
+        run_id: float | str,
         state_dim: int,
         output_ranges: OutputRanges,
         hidden_dim: int = 128,
         rnn_hidden_dim: int = 64,
+        model_name="parameter_search",
     ):
-        super(ParameterSearchModel, self).__init__()
+        super(ParameterSearchModel, self).__init__(model_name, run_id)
         action_dim = len(output_ranges)
         input_dim = state_dim + rnn_hidden_dim
 

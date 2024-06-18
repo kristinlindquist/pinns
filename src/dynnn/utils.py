@@ -87,7 +87,7 @@ def save_model(model: torch.nn.Module, run_id: str, model_name: str = "dynnn"):
         os.makedirs(MODEL_BASE_DIR)
 
     file_path = f"{MODEL_BASE_DIR}/{model_name}-{run_id}.pt"
-    logger.info("Saving model to", file_path)
+    logger.info("Saving model to %s", file_path)
     torch.save(model, file_path)
 
 

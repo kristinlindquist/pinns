@@ -1,11 +1,13 @@
-from typing import Callable
-import torch
 import math, os, sys
-import time
+import torch
 import torch.nn.functional as F
 
-from dynnn.layers.pinn import PINN
-from dynnn.types import PinnStats, PinnTrainingArgs
+from dynnn.types import (
+    Dataset,
+    ModelStats,
+    PinnTrainingArgs,
+    SaveableModel,
+)
 from dynnn.utils import get_logger, save_model
 
 logger = get_logger(__name__)
@@ -22,34 +24,30 @@ def default_loss_fn(dxdt, dxdt_hat, s, masses):
 
 
 def train_pinn(
+    model: SaveableModel,
     args: PinnTrainingArgs,
-    data: dict,
-    model: torch.nn.Module,
-    run_id: str | None = None,
-    plot_loss_callback: Callable | None = None,
-    loss_fn: Callable | None = None,
-) -> tuple[torch.nn.Module, dict]:
+    data: Dataset,
+) -> ModelStats:
     """
     Training loop for the PINN
     """
     optim = torch.optim.Adam(
         model.parameters(), args.learning_rate, weight_decay=args.weight_decay
     )
-    calc_loss = loss_fn or default_loss_fn
+    calc_loss = args.loss_fn or default_loss_fn
 
     # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
-    x = data["x"].clone().detach().requires_grad_()
-    test_x = data["test_x"].clone().detach().requires_grad_()
-    dxdt = data["dx"].clone().detach().requires_grad_()
-    test_dxdt = data["test_dx"].clone().detach().requires_grad_()
-    masses = data["masses"].clone().detach().requires_grad_()
+    x = data.x.clone().detach().requires_grad_()
+    test_x = data.test_x.clone().detach().requires_grad_()
+    dxdt = data.dx.clone().detach().requires_grad_()
+    test_dxdt = data.test_dx.clone().detach().requires_grad_()
+    masses = data.masses.clone().detach().requires_grad_()
 
-    run_id = run_id or time.time()
     counter = 0
     best_metric = float("inf")
 
     # vanilla train loop
-    stats = PinnStats()
+    stats = ModelStats()
     for step in range(args.n_epochs * args.steps_per_epoch + 1):
         ### train ###
         model.train()
@@ -85,7 +83,7 @@ def train_pinn(
                 plot_loss_callback(stats)
 
             logger.debug(
-                "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
+                "INNER Step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
                     step,
                     loss.item(),
                     additional_loss.item(),
@@ -106,7 +104,7 @@ def train_pinn(
                 )
                 best_metric = val_metric
                 counter = 0
-                save_model(model, run_id)
+                model.save()
             else:
                 counter += 1
                 if counter >= args.patience:
@@ -128,4 +126,4 @@ def train_pinn(
         )
     )
 
-    return model, stats
+    return stats

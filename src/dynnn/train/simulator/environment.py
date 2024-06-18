@@ -1,14 +1,9 @@
-from pydantic import BaseModel
-import statistics as math
-import time
 import torch
-from typing import Callable
 
 from dynnn.simulation.mve_ensemble import MveEnsembleMechanics
-from dynnn.train.train_pinn import train_pinn
+from dynnn.types import ModelStats, SimulatorState, TrainLoop
 from dynnn.utils import get_logger
 
-from .types import SimulatorState, PinnStats
 
 logger = get_logger(__name__)
 
@@ -26,21 +21,17 @@ class SimulatorEnv:
     def __init__(
         self,
         initial_state: SimulatorState,
-        pinn: torch.nn.Module,
-        pinn_loss_fn: Callable | None = None,
+        train_loop: TrainLoop,
     ):
         self.initial_state = initial_state
-        self.pinn = pinn
-        self.pinn_loss_fn = pinn_loss_fn
         self.current_state = None
-
-        self.run_id = time.time()
+        self.train_loop = train_loop
 
     def reset(self) -> SimulatorState:
         self.current_state = self.initial_state
         return self.current_state
 
-    def step(self, action: SimulatorState) -> tuple[SimulatorState, float, bool]:
+    def step(self, action: SimulatorState) -> tuple[SimulatorState, float]:
         # Apply the action (parameter configuration) to the simulator
         new_state = self.simulate(action)
 
@@ -53,24 +44,18 @@ class SimulatorEnv:
 
     def simulate(self, action: SimulatorState) -> SimulatorState:
         p = action.params
-        mechanics = MveEnsembleMechanics(p.model_args)
+        mechanics = MveEnsembleMechanics(p.mechanics_args)
 
         try:
             # generate EOM dataset
             data, sim_duration = mechanics.get_dataset(
                 p.dataset_args, p.trajectory_args
             )
-            _, stats = train_pinn(
-                self.initial_state.params.training_args,
-                data,
-                run_id=self.run_id,
-                model=self.pinn,
-                loss_fn=self.pinn_loss_fn,
-            )
+            stats = self.train_loop(p.training_args, data)
         except Exception as e:
             logger.error("Failed to generate dataset: %s", e)
             # inf loss due to error
-            stats = PinnStats(
+            stats = ModelStats(
                 train_loss=[torch.tensor(1e10)],
                 test_loss=[torch.tensor(1e10)],
             )

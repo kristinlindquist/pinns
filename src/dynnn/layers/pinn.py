@@ -9,12 +9,19 @@ from dynnn.layers import (
     SkewInvariantLayer,
     TranslationallyInvariantLayer,
 )
-from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs, VectorField
+from dynnn.types import (
+    MIN_N_BODIES,
+    MAX_N_BODIES,
+    PinnModelArgs,
+    PinnTrainingArgs,
+    SaveableModel,
+    VectorField,
+)
 
 from .utils import permutation_tensor
 
 
-class PINN(nn.Module):
+class PINN(SaveableModel):
     """
     Physics-Informed Neural Network (PINN) for learning arbitrary vector fields.
 
@@ -24,21 +31,24 @@ class PINN(nn.Module):
 
     def __init__(
         self,
+        run_id: float | str,
         args: PinnModelArgs,
-        n_dims: int,
+        # TODO: send in on fwd pass only? otherwise cannot change based on rl
+        training_args: PinnTrainingArgs = PinnTrainingArgs(),
+        model_name: str = "pinn",
     ):
-        super(PINN, self).__init__()
+        super(PINN, self).__init__(model_name, run_id)
 
         # canonical_input_dim * len([q, p]) * n_dims
-        input_dim = args.canonical_input_dim * 2 * n_dims
+        input_dim = args.canonical_input_dim * 2 * args.n_dims
 
         # Levi-Civita permutation tensor
         self.P = permutation_tensor()
 
         self.invariant_layer = TranslationallyInvariantLayer()
         self.skew_invariant_layer = SkewInvariantLayer(args.canonical_hidden_dim)
-        self.use_invariant_layer = args.use_invariant_layer
-        self.field_type = args.vector_field_type
+        self.use_invariant_layer = training_args.use_invariant_layer
+        self.field_type = training_args.vector_field_type
 
         self.model = DynamicallySizedNetwork(
             input_dim,
@@ -46,10 +56,10 @@ class PINN(nn.Module):
             input_dim,
             dynamic_dim=2,
             dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
-            dynamic_multiplier=2 * n_dims,  # len([q, p]) * n_dims
+            dynamic_multiplier=2 * args.n_dims,  # len([q, p]) * n_dims
             extra_canonical_output_layers=(
                 [self.skew_invariant_layer]
-                if args.vector_field_type == VectorField.PORT
+                if self.field_type == VectorField.PORT
                 else []
             ),
         )

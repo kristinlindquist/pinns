@@ -48,11 +48,11 @@ class SkewInvariantLayer(nn.Module):
 
     def forward(
         self,
-        input: torch.Tensor,
-        potentials: torch.Tensor,
+        inputs: torch.Tensor,
+        potentials: torch.Tensor,  # TODO: how to handle this being passed in?
     ) -> torch.Tensor:
         d_potential = torch.autograd.grad(
-            [potentials.sum()], [input], create_graph=True
+            [potentials.sum()], [inputs], create_graph=True
         )[0]
 
         assert d_potential is not None

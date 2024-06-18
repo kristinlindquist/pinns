@@ -7,14 +7,16 @@ from pydantic import (
 from pydantic.functional_validators import BeforeValidator
 import torch
 import torch.nn.functional as F
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
+from dynnn.encoding import encode_params, flatten_dict, unflatten_params
 from dynnn.utils import round_to_mantissa
 
 from .enums import GeneratorType, OdeSolverType, VectorField
-from .types import ForcedInt, ForcedIntOrNone
+from .stats import ModelStats
+from .types import Dataset, ForcedInt, ForcedIntOrNone
 
-MAX_N_BODIES = 1000
+MAX_N_BODIES = 100  # TODO: 1000
 MIN_N_BODIES = 2
 
 
@@ -74,9 +76,9 @@ class HasSimulatorArgs(BaseModel):
         return "_".join(filename_parts)
 
 
-class PinnTrainingArgs(HasSimulatorArgs):
+class TrainingArgs(HasSimulatorArgs):
     """
-    Arguments for training a PINN model
+    Arguments for training a model
     """
 
     n_epochs: ForcedInt = Field(5, ge=50, le=200, decorator=RlParam)
@@ -85,7 +87,14 @@ class PinnTrainingArgs(HasSimulatorArgs):
     learning_rate: float = Field(1e-3, ge=1e-7, le=1e-1)
     weight_decay: float = Field(1e-4, ge=1e-7, le=1e-1)
 
-    ### early stopping parameters ###
+    plot_loss_callback: Callable | None = None
+
+
+class EarlyStoppingTrainingArgs(TrainingArgs):
+    """
+    Arguments for training a model
+    """
+
     # minimum improvement in loss to avoid incrementing early stopping counter
     tolerance: float = 1e-1
 
@@ -95,7 +104,42 @@ class PinnTrainingArgs(HasSimulatorArgs):
     # min epochs before considering early stopping
     min_epochs: int = 5
 
-    ### end early stopping parameters ###
+
+class MechanicsArgs(HasSimulatorArgs):
+    domain_min: ForcedInt = Field(0, decorator=RlParam, ge=-1000, le=0)
+    domain_max: ForcedInt = Field(10, decorator=RlParam, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def pre_update(cls, values: "PinnTrainingArgs") -> "PinnTrainingArgs":
+        if values.domain_max <= values.domain_min:
+            values.domain_max = (
+                values.domain_max + (values.domain_min - values.domain_max) + 1
+            )
+
+        return values
+
+
+class PinnTrainingArgs(EarlyStoppingTrainingArgs):
+    """
+    Arguments for training a PINN model
+    """
+
+    loss_fn: Callable | None = None
+
+    # type of vector field to attempt to learn
+    vector_field_type: VectorField = VectorField.CONSERVATIVE  # TODO: no PORT
+
+    # use invariant layers to improve learning rate
+    use_invariant_layer: bool = True
+
+
+class SimulatorTrainingArgs(TrainingArgs):
+    num_experiments: ForcedInt = Field(
+        50, ge=25, le=200, description="number of RL param switch experiments"
+    )
+    max_simulator_steps: ForcedInt = Field(
+        250, ge=100, le=2000, description="max steps within an experiment"
+    )
 
 
 class PinnModelArgs(HasSimulatorArgs):
@@ -103,27 +147,9 @@ class PinnModelArgs(HasSimulatorArgs):
     Arguments for the PINN model
     """
 
-    domain_min: ForcedInt = Field(0, decorator=RlParam, ge=-1000, le=0)
-    domain_max: ForcedInt = Field(10, decorator=RlParam, ge=1, le=1000)
-
-    # type of vector field to attempt to learn
-    vector_field_type: VectorField = VectorField.PORT
-
-    # canonical neural network dims (cannot be RlParams)
     canonical_input_dim: int = Field(128, ge=64, le=4096)
     canonical_hidden_dim: int = Field(512, ge=64, le=4096)
-
-    # use invariant layers to improve learning rate
-    use_invariant_layer: bool = True
-
-    @model_validator(mode="after")
-    def pre_update(cls, values: "PinnModelArgs") -> "PinnModelArgs":
-        if values.domain_max <= values.domain_min:
-            values.domain_max = (
-                values.domain_max + (values.domain_min - values.domain_max) + 1
-            )
-
-        return values
+    n_dims: ForcedInt = Field(3, ge=1, le=6)
 
 
 class DatasetArgs(HasSimulatorArgs):
@@ -190,3 +216,86 @@ class TrajectoryArgs(HasSimulatorArgs):
         values.odeint_atol = round_to_mantissa(values.odeint_atol)
 
         return values
+
+
+class SimulatorArgs(BaseModel):
+    dataset_args: DatasetArgs = DatasetArgs()
+    mechanics_args: MechanicsArgs = MechanicsArgs()
+    trajectory_args: TrajectoryArgs = TrajectoryArgs()
+    training_args: PinnTrainingArgs = PinnTrainingArgs()
+
+    @property
+    def filename(self) -> str:
+        filename_parts = [
+            self.dataset_args.filename,
+            self.mechanics_args.filename,
+            self.trajectory_args.filename,
+            self.training_args.filename,
+        ]
+        return "_".join(filename_parts)
+
+    @property
+    def rl_param_sizes(self) -> dict[str, dict[str, tuple[int, int]]]:
+        return {
+            "dataset_args": self.dataset_args.rl_param_sizes,
+            "mechanics_args": self.mechanics_args.rl_param_sizes,
+            "trajectory_args": self.trajectory_args.rl_param_sizes,
+            "training_args": self.training_args.rl_param_sizes,
+        }
+
+    def encode_rl_params(self) -> dict[str, dict[str, torch.Tensor]]:
+        return {
+            "dataset_args": self.dataset_args.encode_rl_params(),
+            "mechanics_args": self.mechanics_args.encode_rl_params(),
+            "trajectory_args": self.trajectory_args.encode_rl_params(),
+            "training_args": self.training_args.encode_rl_params(),
+        }
+
+    @classmethod
+    def load_rl_params(cls, encoded: dict[str, torch.Tensor]) -> "SimulatorArgs":
+        return cls(
+            dataset_args=DatasetArgs.load_rl_params(encoded["dataset_args"]),
+            mechanics_args=MechanicsArgs.load_rl_params(encoded["mechanics_args"]),
+            trajectory_args=TrajectoryArgs.load_rl_params(encoded["trajectory_args"]),
+            training_args=PinnTrainingArgs.load_rl_params(encoded["training_args"]),
+        )
+
+
+class SimulatorState(BaseModel):
+    params: SimulatorArgs
+    stats: ModelStats = ModelStats()
+    sim_duration: float = 0.0
+
+    @property
+    def rl_param_sizes(self) -> dict[str, dict[str, Any]]:
+        return {
+            "params": self.params.rl_param_sizes,
+            "stats": 2,
+            "sim_duration": 2,
+        }
+
+    @property
+    def rl_param_sizes_flat(self) -> dict[str, tuple[int, int]]:
+        return flatten_dict(self.rl_param_sizes)
+
+    @property
+    def num_rl_params(self) -> int:
+        return len(self.rl_param_sizes_flat)
+
+    def encode_rl_params(self) -> tuple[torch.Tensor, dict]:
+        attributes = {
+            "params": self.params.encode_rl_params(),
+            "stats": self.stats.encode(),
+            "sim_duration": self.sim_duration,
+        }
+
+        return encode_params(flatten_dict(attributes)), attributes
+
+    @classmethod
+    def load_rl_params(cls, encoded: dict, template: dict) -> "SimulatorArgs":
+        scalar_dict = unflatten_params(encoded, template, decode_tensors=True)
+        return cls(
+            params=SimulatorArgs.load_rl_params(scalar_dict["params"]),
+            stats=scalar_dict.get("stats", {}),
+            sim_duration=scalar_dict.get("sim_duration", 0.0),
+        )

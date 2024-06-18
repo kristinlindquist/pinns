@@ -14,6 +14,7 @@ from dynnn.mechanics.hamiltonian import (
     hamiltonian_equation_of_motion as hamiltonian_eom,
 )
 from dynnn.types import (
+    Dataset,
     DatasetArgs,
     GeneratorFunction,
     GeneratorType,
@@ -29,7 +30,7 @@ logger = get_logger(__name__)
 
 MAX_NAN_STEPS = 10
 TRAJ_CHECK_STEPS = 500
-TRAJ_MIN_PROGRESS = 1e-6
+TRAJ_MIN_PROGRESS = 1e-3
 MAX_TRAJ_FAILS = 10
 
 
@@ -42,8 +43,6 @@ class Mechanics:
         self,
         get_generator_fn: Callable[[Any], GeneratorFunction],
         get_initial_conditions: Callable[[int, Any], tuple[torch.Tensor, torch.Tensor]],
-        domain_min: int = 0,
-        domain_max: int = 10,
     ):
         """
         Initialize the class
@@ -51,13 +50,9 @@ class Mechanics:
         Args:
             get_generator_fn: function returning Hamiltonian function
             get_initial_conditions: function returning initial conditions
-            domain_min (int): minimum domain value
-            domain_max (int): maximum domain value
         """
         self.get_generator_fn = get_generator_fn
         self.get_initial_conditions = get_initial_conditions
-        self.domain_min = domain_min
-        self.domain_max = domain_max
         self.log = {}
 
     def track_trajectory(
@@ -223,7 +218,7 @@ class Mechanics:
         self,
         args: DatasetArgs,
         trajectory_args: TrajectoryArgs,
-    ) -> tuple[dict, int]:
+    ) -> tuple[Dataset, int]:
         """
         Generate a dataset of trajectories
         (with pickle caching)
@@ -261,13 +256,13 @@ class Mechanics:
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
         """
+        torch.seed()
 
         n_samples, test_split = args.dict().values()
-
-        torch.seed()
         xs, dxs, time = [], [], None
         fail_count = 0
         count = 0
+
         while count < n_samples:
             try:
                 # try to get a trajectory
@@ -300,7 +295,7 @@ class Mechanics:
             dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
 
         # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
-        data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}
+        data = {"x": torch.cat(xs), "dx": torch.cat(dxs)}
 
         # make a train/test split
         split_ix = int(len(data["x"]) * test_split)
@@ -311,4 +306,4 @@ class Mechanics:
                 data[k][split_ix:],
             )
 
-        return split_data
+        return Dataset(**split_data)

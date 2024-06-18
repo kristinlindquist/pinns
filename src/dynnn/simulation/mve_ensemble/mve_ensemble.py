@@ -3,15 +3,14 @@ MVE Ensemble Mechanics
 (subclass of `Mechanics` for an MVE ensemble)
 """
 
-from typing import overload, Callable
-from multimethod import multidispatch
+from functools import partial
 import torch
 import torch.nn.functional as F
-from functools import partial
+from typing import Callable
 
 from dynnn.mechanics import Mechanics
 from dynnn.utils import zero_mask
-from dynnn.types import GeneratorType, PinnModelArgs
+from dynnn.types import GeneratorType, MechanicsArgs
 
 
 def get_initial_conditions(
@@ -167,123 +166,14 @@ def calc_total_energy(
     return kinetic_energy + potential_energy
 
 
-def energy_conservation_loss(
-    ps_coords: torch.Tensor,
-    ps_coords_hat: torch.Tensor,
-    masses: torch.Tensor,
-    potential_fn=calc_lennard_jones_potential,
-    loss_weight: float = 100,
-) -> torch.Tensor:
-    """
-    Compute total energy difference of a system over time. Should be zero.
-
-    Args:
-        ps_coords (torch.Tensor): Actual phase space coords (n_bodies x 2 x n_dims)
-        ps_coords_hat (torch.Tensor): Predicted phase space coords (n_bodies x 2 x n_dims)
-        masses (torch.Tensor): Masses of each particle (n_bodies)
-        potential_fn (callable): Function that computes the potential energy given positions
-        loss_weight (float): Weight to apply to the loss
-    """
-    q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
-
-    # Compute the total energy of the system
-    energy = calc_total_energy(q, v, masses, potential_fn)
-
-    # Compute the difference in energy between each timepoint
-    energy_diff = torch.abs(torch.diff(energy, dim=0)).sum()
-
-    # Return the mean energy difference, scaled up
-    return energy_diff.mean() * loss_weight
-
-
-def mve_hamiltonian_fn(
-    ps_coords: torch.Tensor,
-    masses: torch.Tensor,
-    potential_fn=calc_lennard_jones_potential,
-) -> torch.Tensor:
-    """
-    Hamiltonian for a generalized MVE ensemble.
-
-    Args:
-        ps_cooords (torch.Tensor): Particle phase space coordinates (n_bodies x 2 x n_dims)
-        masses (torch.Tensor): Masses of each particle (n_bodies)
-        potential_fn (callable): Function that computes the potential energy given positions
-
-    Returns:
-        torch.Tensor: Hamiltonian (Total energy) of the system.
-    """
-    r, v = ps_coords[:, 0], ps_coords[:, 1]
-    return calc_total_energy(r, v, masses, potential_fn)
-
-
-def mve_lagrangian_fn(
-    r: torch.Tensor,
-    v: torch.Tensor,
-    masses: torch.Tensor,
-    potential_fn=calc_lennard_jones_potential,
-) -> torch.Tensor:
-    """
-    Lagrangian for a generalized MVE ensemble.
-
-    Args:
-        r (torch.Tensor): Particle position coordinates (n_bodies x 2 x n_dims)
-        v (torch.Tensor): Velocities of each particle (n_bodies x n_dims)
-        masses (torch.Tensor): Masses of each particle (n_bodies)
-        potential_fn (callable): Function that computes the potential energy given positions
-
-    Returns:
-        torch.Tensor: Lagrangian of the system.
-    """
-    T = calc_kinetic_energy(v, masses)
-    V = potential_fn(r)
-
-    return T - V
-
-
-class MveEnsembleMechanics(Mechanics):
-    """
-    Mechanics for an MVE ensemble.
-    """
-
-    def __init__(self, args: PinnModelArgs = PinnModelArgs()):
-        # potential energy function
-        # - Lennard-Jones potential
-        # - Boundary potential
-        def potential_fn(positions: torch.Tensor):
-            bc_pe = calc_boundary_potential(
-                positions, boundaries=(args.domain_min, args.domain_max)
-            )
-            return calc_lennard_jones_potential(positions) + bc_pe
-
-        self.potential_fn = potential_fn
-        self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
-
-        _get_generator_fn = lambda masses, generator_type: partial(
-            (
-                mve_lagrangian_fn
-                if generator_type == GeneratorType.LAGRANGIAN
-                else mve_hamiltonian_fn
-            ),
-            masses=masses,
-            potential_fn=self.potential_fn,
-        )
-
-        super(MveEnsembleMechanics, self).__init__(
-            _get_generator_fn,
-            get_initial_conditions=get_initial_conditions,
-            domain_min=args.domain_min,
-            domain_max=args.domain_max,
-        )
-
-
-def calc_energy_per_cell(
+def calc_total_energy_per_cell(
     q: torch.Tensor,
     p: torch.Tensor,
     masses: torch.Tensor,
     grid_resolution: tuple[int, int, int],
-    boundaries: tuple[float, float, float, float, float, float],
+    boundaries: tuple[float, float] | tuple[float, float, float, float, float, float],
     potential_fn=calc_lennard_jones_potential,
-):
+) -> torch.Tensor:
     """
     Calculate the total energy of the system per cell in a grid
         (grid as specified by grid_resolution and boundaries).
@@ -299,6 +189,9 @@ def calc_energy_per_cell(
     Returns:
         tensor: The total energy of the system per cell. shape: (n_timepoints, n_cells)
     """
+    if len(boundaries) == 2:
+        boundaries = boundaries * 3
+
     # Calculate the size of each cell
     cell_sizes = torch.tensor(
         [
@@ -321,6 +214,12 @@ def calc_energy_per_cell(
         .reshape(3, -1)
         .T
     )
+
+    cell_indices_2 = torch.cartesian_prod(
+        *[torch.arange(res) for res in grid_resolution]
+    )
+
+    print(cell_indices.shape, cell_indices_2.shape)
 
     # Calc position ranges for each cell (n_cells, 2, num_dims)
     cell_ranges = torch.stack(
@@ -349,3 +248,110 @@ def calc_energy_per_cell(
 
     # shape: (n_timepoints, n_cells)
     return torch.stack(energies).T
+
+
+def energy_conservation_loss(
+    ps_coords: torch.Tensor,
+    ps_coords_hat: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn: Callable = calc_lennard_jones_potential,
+    loss_weight: float = 100,
+) -> torch.Tensor:
+    """
+    Compute total energy difference of a system over time. Should be zero.
+
+    Args:
+        ps_coords (torch.Tensor): Actual phase space coords (n_bodies x 2 x n_dims)
+        ps_coords_hat (torch.Tensor): Predicted phase space coords (n_bodies x 2 x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
+        potential_fn (callable): Function that computes the potential energy given positions
+        loss_weight (float): Weight to apply to the loss
+    """
+    q, v = [s.squeeze() for s in torch.split(ps_coords_hat, 1, dim=-2)]
+
+    # Compute the total energy of the system
+    energy = calc_total_energy(q, v, masses, potential_fn)
+
+    # Compute the difference in energy between each timepoint
+    energy_diff = torch.abs(torch.diff(energy, dim=0)).sum()
+
+    # Return the mean energy difference, scaled up
+    return energy_diff.mean() * loss_weight
+
+
+def mve_hamiltonian_fn(
+    ps_coords: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn: Callable = calc_lennard_jones_potential,
+) -> torch.Tensor:
+    """
+    Hamiltonian for a generalized MVE ensemble.
+
+    Args:
+        ps_cooords (torch.Tensor): Particle phase space coordinates (n_bodies x 2 x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
+        potential_fn (callable): Function that computes the potential energy given positions
+
+    Returns:
+        torch.Tensor: Hamiltonian (Total energy) of the system.
+    """
+    r, v = ps_coords[:, 0], ps_coords[:, 1]
+    return calc_total_energy(r, v, masses, potential_fn)
+
+
+def mve_lagrangian_fn(
+    r: torch.Tensor,
+    v: torch.Tensor,
+    masses: torch.Tensor,
+    potential_fn: Callable = calc_lennard_jones_potential,
+) -> torch.Tensor:
+    """
+    Lagrangian for a generalized MVE ensemble.
+
+    Args:
+        r (torch.Tensor): Particle position coordinates (n_bodies x 2 x n_dims)
+        v (torch.Tensor): Velocities of each particle (n_bodies x n_dims)
+        masses (torch.Tensor): Masses of each particle (n_bodies)
+        potential_fn (callable): Function that computes the potential energy given positions
+
+    Returns:
+        torch.Tensor: Lagrangian of the system.
+    """
+    T = calc_kinetic_energy(v, masses)
+    V = potential_fn(r)
+
+    return T - V
+
+
+class MveEnsembleMechanics(Mechanics):
+    """
+    Mechanics for an MVE ensemble.
+    """
+
+    def __init__(self, args: MechanicsArgs = MechanicsArgs()):
+        # potential energy function
+        # - Lennard-Jones potential
+        # - Boundary potential
+        def potential_fn(positions: torch.Tensor):
+            bc_pe = calc_boundary_potential(
+                positions, boundaries=(args.domain_min, args.domain_max)
+            )
+            return calc_lennard_jones_potential(positions) + bc_pe
+
+        self.potential_fn = potential_fn
+        self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
+
+        _get_generator_fn = lambda masses, generator_type: partial(
+            (
+                mve_lagrangian_fn
+                if generator_type == GeneratorType.LAGRANGIAN
+                else mve_hamiltonian_fn
+            ),
+            masses=masses,
+            potential_fn=self.potential_fn,
+        )
+
+        super(MveEnsembleMechanics, self).__init__(
+            _get_generator_fn,
+            get_initial_conditions=get_initial_conditions,
+        )
