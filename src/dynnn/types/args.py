@@ -14,7 +14,7 @@ from dynnn.utils import round_to_mantissa
 from .enums import GeneratorType, OdeSolverType, VectorField
 from .types import ForcedInt, ForcedIntOrNone
 
-MAX_N_BODIES = 100
+MAX_N_BODIES = 1000
 MIN_N_BODIES = 2
 
 
@@ -107,7 +107,7 @@ class PinnModelArgs(HasSimulatorArgs):
     domain_max: ForcedInt = Field(10, decorator=RlParam, ge=1, le=1000)
 
     # type of vector field to attempt to learn
-    vector_field_type: VectorField = VectorField.CONSERVATIVE
+    vector_field_type: VectorField = VectorField.PORT
 
     # canonical neural network dims (cannot be RlParams)
     canonical_input_dim: int = Field(128, ge=64, le=4096)
@@ -133,7 +133,6 @@ class DatasetArgs(HasSimulatorArgs):
 
     # number of distinct trajectories to generate
     n_samples: ForcedInt = Field(5, decorator=RlParam, ge=5, le=25)
-    # n_samples: ForcedInt = Field(2, decorator=RlParam, ge=2, le=5)
 
     test_split: float = Field(0.8, ge=0.1, le=0.9)
 
@@ -151,7 +150,7 @@ class TrajectoryArgs(HasSimulatorArgs):
     model: torch.nn.Module | None = None
 
     n_bodies: ForcedIntOrNone = Field(
-        5, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
+        15, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
     )
     n_dims: ForcedInt = Field(3, ge=1, le=6)
 
@@ -161,7 +160,7 @@ class TrajectoryArgs(HasSimulatorArgs):
     # time parameters
     time_scale: ForcedInt = Field(10, decorator=RlParam, ge=5, le=100)
     t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
-    t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=100)  # 500
+    t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
     odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-5, decorator=RlParam)

@@ -27,10 +27,10 @@ from .utils import get_timepoints
 
 logger = get_logger(__name__)
 
-MAX_NAN_STEPS = 3
+MAX_NAN_STEPS = 10
 TRAJ_CHECK_STEPS = 500
-TRAJ_MIN_PROGRESS = 1e-3
-MAX_TRAJ_FAILS = 3
+TRAJ_MIN_PROGRESS = 1e-6
+MAX_TRAJ_FAILS = 10
 
 
 class Mechanics:
@@ -60,7 +60,9 @@ class Mechanics:
         self.domain_max = domain_max
         self.log = {}
 
-    def track_trajectory(self, traj_id: str, t: torch.Tensor | None) -> None:
+    def track_trajectory(
+        self, traj_id: str, t: torch.Tensor | None, min_progress: int
+    ) -> None:
         """
         Track trajectory progress (logging & detection that we're going nowhere)
         """
@@ -72,21 +74,26 @@ class Mechanics:
         total_steps = len(self.log[traj_id])
         if total_steps % TRAJ_CHECK_STEPS == 0:
             logger.debug(
-                f"Trajectory {traj_id}: {total_steps} steps (last t: {t.item()})"
+                "Trajectory %s: %s steps (last t: %s)", traj_id, total_steps, t.item()
             )
 
             if total_steps >= TRAJ_CHECK_STEPS * 2:
                 # if the timestep is still very tiny, assume we're stuck
                 progress = self.log[traj_id][-1] - self.log[traj_id][-TRAJ_CHECK_STEPS]
-                if progress < TRAJ_MIN_PROGRESS:
+                if progress < min_progress:
                     logger.warn(
-                        f"Trajectory {traj_id}: Stalled ({progress.item()}); giving up"
+                        "Trajectory %s: Stalled (%s); giving up",
+                        traj_id,
+                        progress.item(),
                     )
                     raise RuntimeError("Trajectory stalled")
 
         # if too many values are NaNs, assume parameter set is invalid
-        if len([t for t in self.log[traj_id] if math.isnan(t)]) > MAX_NAN_STEPS:
-            logger.warn(f"Trajectory {traj_id}: Too many NaNs; giving up")
+        total_nans = len([t for t in self.log[traj_id] if math.isnan(t)])
+        if total_nans > MAX_NAN_STEPS:
+            logger.warn(
+                "Trajectory %s: Too many NaNs (%s); giving up", traj_id, total_nans
+            )
             raise ValueError("Too many NaNs")
 
     def dynamics_fn(
@@ -97,6 +104,7 @@ class Mechanics:
         model: torch.nn.Module | None = None,
         function_args: dict = {},
         traj_id: str = "",
+        min_progress: int = TRAJ_MIN_PROGRESS,
     ) -> torch.Tensor:
         """
         Dynamics function - finds the state update for the supplied function
@@ -114,7 +122,7 @@ class Mechanics:
             based on the specified generator function & equations of motion
         """
         # track trajectory, including logging and early stopping
-        self.track_trajectory(traj_id, t)
+        self.track_trajectory(traj_id, t, min_progress)
 
         generator_fn = self.get_generator_fn(
             **function_args, generator_type=generator_type
@@ -150,8 +158,8 @@ class Mechanics:
             args.t_span_min: Minimum time span
             args.t_span_max: Maximum time span
             args.odeint_solver: ODE solver
-            args.odeint_rtol: Relative tolerance
-            args.odeint_atol: Absolute tolerance
+            args.odeint_rtol: ode solver relative tolerance
+            args.odeint_atol: ode solver absolute tolerance
             args.generator_type: Generator type
             args.time_scale: Time scale
             args.model: Model to use for time derivative (optional)
@@ -171,6 +179,7 @@ class Mechanics:
             generator_type=args.generator_type,
             function_args={"masses": masses},
             traj_id=traj_id,
+            min_progress=TRAJ_MIN_PROGRESS / args.n_bodies,
         )
 
         # use an ODE solver to solve the equations of motion
@@ -275,7 +284,10 @@ class Mechanics:
                 continue
 
             logger.info(
-                f"Data creation trajectory count: {count} of {n_samples} (failures: {fail_count})"
+                "Data creation trajectory count: %s of %s (failures: %s)",
+                count,
+                n_samples,
+                fail_count,
             )
 
             if time is None:
