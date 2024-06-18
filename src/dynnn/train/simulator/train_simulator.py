@@ -5,10 +5,12 @@ from typing import Callable
 
 from dynnn.layers.parameter_search import ParameterSearchModel
 from dynnn.layers.pinn import PINN
-from dynnn.utils import save_model
+from dynnn.utils import get_logger, save_model
 
 from .environment import SimulatorEnv
 from .types import SimulatorArgs, SimulatorState
+
+logger = get_logger(__name__)
 
 
 def train_simulator(
@@ -73,7 +75,7 @@ def train_simulator(
             # Compute the loss from the policy gradient
             log_prob = distribution.log_prob(unscaled_action)
             loss = -log_prob * reward
-            print(
+            logger.info(
                 f"RL Loss: {loss.item()} (Reward: {reward.item()}, log_prob: {log_prob})"
             )
             loss.backward()
@@ -85,7 +87,7 @@ def train_simulator(
             state = next_state
 
         save_model(psm, psm_run_id, "param-search")
-        print(
+        logger.info(
             f"Experiment {experiment + 1}: Reward = {math.mean(experiment_reward):.2f}"
         )
 

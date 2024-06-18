@@ -85,8 +85,6 @@ class PinnTrainingArgs(HasSimulatorArgs):
     learning_rate: float = Field(1e-3, ge=1e-7, le=1e-1)
     weight_decay: float = Field(1e-4, ge=1e-7, le=1e-1)
 
-    is_verbose: bool = False
-
     ### early stopping parameters ###
     # minimum improvement in loss to avoid incrementing early stopping counter
     tolerance: float = 1e-1

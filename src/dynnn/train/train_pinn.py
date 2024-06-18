@@ -6,7 +6,9 @@ import torch.nn.functional as F
 
 from dynnn.layers.pinn import PINN
 from dynnn.types import PinnStats, PinnTrainingArgs
-from dynnn.utils import save_model
+from dynnn.utils import get_logger, save_model
+
+logger = get_logger(__name__)
 
 
 def default_loss_fn(dxdt, dxdt_hat, s, masses):
@@ -58,7 +60,7 @@ def train_pinn(
 
         # with torch.autograd.profiler.profile() as prof:
         #     loss.backward()
-        # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
+        # logger.info(prof.key_averages().table(sort_by="self_cpu_time_total"))
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optim.step()
@@ -82,16 +84,15 @@ def train_pinn(
             if plot_loss_callback is not None:
                 plot_loss_callback(stats)
 
-            if args.is_verbose:
-                print(
-                    "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
-                        step,
-                        loss.item(),
-                        additional_loss.item(),
-                        test_loss.item(),
-                        test_additional_loss.item(),
-                    )
+            logger.debug(
+                "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
+                    step,
+                    loss.item(),
+                    additional_loss.item(),
+                    test_loss.item(),
+                    test_additional_loss.item(),
                 )
+            )
 
         # early stopping checks
         if (
@@ -100,17 +101,16 @@ def train_pinn(
         ):
             val_metric = test_loss.item()
             if val_metric < best_metric - args.tolerance:
-                if args.is_verbose:
-                    print(
-                        f"Val metric improved. {val_metric} < {best_metric} - {args.tolerance}"
-                    )
+                logger.debug(
+                    f"Val metric improved. {val_metric} < {best_metric} - {args.tolerance}"
+                )
                 best_metric = val_metric
                 counter = 0
                 save_model(model, run_id)
             else:
                 counter += 1
                 if counter >= args.patience:
-                    print("Early stopping triggered. Training stopped.")
+                    logger.warn("Early stopping triggered. Training stopped.")
                     break
 
     train_dxdt_hat = model.forward(x)
@@ -118,7 +118,7 @@ def train_pinn(
     test_dxdt_hat = model.forward(test_x)
     test_dist = (test_dxdt - test_dxdt_hat) ** 2
 
-    print(
+    logger.info(
         "Final train loss {:.4e} +/- {:.4e}\nFinal test loss {:.4e} +/- {:.4e} ({} epochs)".format(
             train_dist.mean().item(),
             train_dist.std().item() / math.sqrt(train_dist.shape[0]),

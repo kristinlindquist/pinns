@@ -1,4 +1,5 @@
 from functools import partial
+import logging
 import math
 from multimethod import multidispatch
 from pydantic import BaseModel
@@ -20,10 +21,11 @@ from dynnn.types import (
     Trajectory,
     TrajectoryArgs,
 )
-from dynnn.utils import load_or_create_data
-
+from dynnn.utils import load_or_create_data, get_logger
 
 from .utils import get_timepoints
+
+logger = get_logger(__name__)
 
 MAX_NAN_STEPS = 3
 TRAJ_CHECK_STEPS = 500
@@ -69,20 +71,22 @@ class Mechanics:
         self.log[traj_id].append(t)
         total_steps = len(self.log[traj_id])
         if total_steps % TRAJ_CHECK_STEPS == 0:
-            print(f"Trajectory {traj_id}: {total_steps} steps (last t: {t.item()})")
+            logger.debug(
+                f"Trajectory {traj_id}: {total_steps} steps (last t: {t.item()})"
+            )
 
             if total_steps >= TRAJ_CHECK_STEPS * 2:
                 # if the timestep is still very tiny, assume we're stuck
                 progress = self.log[traj_id][-1] - self.log[traj_id][-TRAJ_CHECK_STEPS]
                 if progress < TRAJ_MIN_PROGRESS:
-                    print(
+                    logger.warn(
                         f"Trajectory {traj_id}: Stalled ({progress.item()}); giving up"
                     )
                     raise RuntimeError("Trajectory stalled")
 
         # if too many values are NaNs, assume parameter set is invalid
         if len([t for t in self.log[traj_id] if math.isnan(t)]) > MAX_NAN_STEPS:
-            print(f"Trajectory {traj_id}: Too many NaNs; giving up")
+            logger.warn(f"Trajectory {traj_id}: Too many NaNs; giving up")
             raise ValueError("Too many NaNs")
 
     def dynamics_fn(
@@ -270,7 +274,7 @@ class Mechanics:
                 fail_count += 1
                 continue
 
-            print(
+            logger.info(
                 f"Data creation trajectory count: {count} of {n_samples} (failures: {fail_count})"
             )
 
