@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from functools import partial
 
 from dynnn.mechanics import Mechanics
+from dynnn.utils import zero_mask
 from dynnn.types import GeneratorType, PinnModelArgs
 
 
@@ -135,7 +136,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
                 timepoints x n_bodies x num_dims
         masses (torch.Tensor): Tensor containing masses of particles
     """
-    if len(masses.shape) == 1:
+    if len(masses.shape) < 2:
         masses = masses.unsqueeze(-1)
 
     masses = masses.expand(velocities.shape)
@@ -145,7 +146,8 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
     # Average the kinetic energies over all particles
     # If we have timepoints, average across all particles for each timepoint
-    mean_dim = -1 if velocities.dim() > 1 else 0
+    mean_dim = -1 if velocities.dim() >= 2 else 0
+
     return kinetic_energy.mean(dim=mean_dim)
 
 
@@ -272,3 +274,78 @@ class MveEnsembleMechanics(Mechanics):
             domain_min=args.domain_min,
             domain_max=args.domain_max,
         )
+
+
+def calc_energy_per_cell(
+    q: torch.Tensor,
+    p: torch.Tensor,
+    masses: torch.Tensor,
+    grid_resolution: tuple[int, int, int],
+    boundaries: tuple[float, float, float, float, float, float],
+    potential_fn=calc_lennard_jones_potential,
+):
+    """
+    Calculate the total energy of the system per cell in a grid
+        (grid as specified by grid_resolution and boundaries).
+
+    Args:
+        q (tensor): The positions of the particles. shape: (n_timepoints, n_bodies, n_dims)
+        p (tensor): The momenta of the particles. shape: (n_timepoints, n_bodies, n_dims)
+        masses (tensor): The masses of the particles. shape: (n_bodies)
+        grid_resolution (tuple): The number of cells in each dimension. shape: (3)
+        boundaries (tuple): The boundaries of the grid
+        potential_fn (function): The potential function to use. Default: calc_lennard_jones_potential
+
+    Returns:
+        tensor: The total energy of the system per cell. shape: (n_timepoints, n_cells)
+    """
+    # Calculate the size of each cell
+    cell_sizes = torch.tensor(
+        [
+            (boundaries[1] - boundaries[0]) / grid_resolution[0],
+            (boundaries[3] - boundaries[2]) / grid_resolution[1],
+            (boundaries[5] - boundaries[4]) / grid_resolution[2],
+        ]
+    )
+
+    # Create a grid of cell indices
+    cell_indices = (
+        torch.stack(
+            torch.meshgrid(
+                torch.arange(grid_resolution[0]),
+                torch.arange(grid_resolution[1]),
+                torch.arange(grid_resolution[2]),
+                indexing="ij",
+            )
+        )
+        .reshape(3, -1)
+        .T
+    )
+
+    # Calc position ranges for each cell (n_cells, 2, num_dims)
+    cell_ranges = torch.stack(
+        [
+            boundaries[0::2] + cell_indices * cell_sizes,
+            boundaries[0::2] + (cell_indices + 1) * cell_sizes,
+        ],
+        dim=-2,
+    )
+
+    # Create masks for each cell based on position ranges
+    masks = (
+        (p[..., None, 0] >= cell_ranges[..., 0, 0])
+        & (p[..., None, 0] < cell_ranges[..., 1, 0])
+        & (p[..., None, 1] >= cell_ranges[..., 0, 1])
+        & (p[..., None, 1] < cell_ranges[..., 1, 1])
+        & (p[..., None, 2] >= cell_ranges[..., 0, 2])
+        & (p[..., None, 2] < cell_ranges[..., 1, 2])
+    ).permute(2, 0, 1)
+
+    # Calculate the total energy of the system for each cell
+    energies = [
+        calc_total_energy(zero_mask(q, mask), zero_mask(p, mask), masses, potential_fn)
+        for mask in masks
+    ]
+
+    # shape: (n_timepoints, n_cells)
+    return torch.stack(energies).T

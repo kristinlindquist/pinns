@@ -202,3 +202,12 @@ def get_logger(name: str = __name__):
     config = sys.path[0] + "/../logging.ini"
     logging.config.fileConfig(config, disable_existing_loggers=False)
     return logging.getLogger(name)
+
+
+def zero_mask(vec: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """
+    Zero out all unmasked elements
+    """
+    base = torch.zeros(vec.shape)
+    base[mask] = vec[mask]
+    return base
