@@ -18,6 +18,7 @@ class DynamicallySizedNetwork(nn.Module):
         dynamic_dim: int,
         dynamic_range: tuple[int, int, int],  # (min, max, step)
         dynamic_multiplier: int,
+        extra_canonical_output_layers: list[torch.Tensor] = [],
     ):
         super(DynamicallySizedNetwork, self).__init__()
         self.dynamic_range = dynamic_range
@@ -37,6 +38,7 @@ class DynamicallySizedNetwork(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
+            *extra_canonical_output_layers,
             nn.Linear(hidden_dim, canonical_output_dim),
         )
 

@@ -4,7 +4,11 @@ from torch import nn
 import torch.autograd.functional as AF
 from typing import Literal
 
-from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
+from dynnn.layers import (
+    DynamicallySizedNetwork,
+    SkewInvariantLayer,
+    TranslationallyInvariantLayer,
+)
 from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs, VectorField
 
 from .utils import permutation_tensor
@@ -16,8 +20,6 @@ class PINN(nn.Module):
 
     TODO:
     - dimensionality of permutation_tensor
-    - use_invariant_layer
-    - Port-Hamiltonian systems (Skew)
     """
 
     def __init__(
@@ -33,10 +35,8 @@ class PINN(nn.Module):
         # Levi-Civita permutation tensor
         self.P = permutation_tensor()
 
-        # Skew-symmetric matrix
-        self.S = nn.Parameter(torch.randn(input_dim, input_dim))
-
         self.invariant_layer = TranslationallyInvariantLayer()
+        self.skew_invariant_layer = SkewInvariantLayer(args.canonical_hidden_dim)
         self.use_invariant_layer = args.use_invariant_layer
         self.field_type = args.vector_field_type
 
@@ -47,14 +47,12 @@ class PINN(nn.Module):
             dynamic_dim=2,
             dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
             dynamic_multiplier=2 * n_dims,  # len([q, p]) * n_dims
+            extra_canonical_output_layers=(
+                [self.skew_invariant_layer]
+                if args.vector_field_type == VectorField.PORT
+                else []
+            ),
         )
-
-    @property
-    def skew(self):
-        """
-        Skew-symmetric matrix
-        """
-        return 0.5 * (self.S - self.S.T)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
         """
@@ -76,18 +74,9 @@ class PINN(nn.Module):
             return potentials
 
         if self.field_type == VectorField.PORT:
-            # # TODO: skew invariance matrix for variable in/out sizes...
-            # d_potential = torch.autograd.grad(
-            #     [potentials.sum()], [x], create_graph=True
-            # )[0]
-
-            # assert d_potential is not None
-            # return torch.einsum(
-            #     "bti,ij->btj",
-            #     d_potential.reshape(**d_potential.shape[0:2], -1),
-            #     self.skew,
-            # ).reshape(d_potential.shape)
-            raise NotImplementedError("Port-Hamiltonian systems not yet implemented")
+            # Port-Hamiltonian systems
+            # (skew-symmetric matrix - already handled in MLP)
+            return potentials
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)

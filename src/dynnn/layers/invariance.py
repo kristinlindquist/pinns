@@ -4,9 +4,10 @@ Inspired by https://www.sciencedirect.com/science/article/pii/S0021999123003297
 """
 
 import torch
+from torch import nn
 
 
-class TranslationallyInvariantLayer(torch.nn.Module):
+class TranslationallyInvariantLayer(nn.Module):
     """
     Compute translationally invariant features from a set of particle positions.
     """
@@ -27,14 +28,49 @@ class TranslationallyInvariantLayer(torch.nn.Module):
         return x
 
 
-class RotationallyInvariantLayer(torch.nn.Module):
+class SkewInvariantLayer(nn.Module):
+    """
+    Compute skew invariant features from a set of particle positions.
+    """
+
+    def __init__(self, input_dim: int):
+        super(SkewInvariantLayer, self).__init__()
+
+        # Skew-symmetric matrix
+        self.S = nn.Parameter(torch.randn(input_dim, input_dim))
+
+    @property
+    def skew(self):
+        """
+        Skew-symmetric matrix
+        """
+        return 0.5 * (self.S - self.S.T)
+
+    def forward(
+        self,
+        input: torch.Tensor,
+        potentials: torch.Tensor,
+    ) -> torch.Tensor:
+        d_potential = torch.autograd.grad(
+            [potentials.sum()], [input], create_graph=True
+        )[0]
+
+        assert d_potential is not None
+        return torch.einsum(
+            "bti,ij->btj",
+            d_potential.reshape(*d_potential.shape[0:2], -1),
+            self.skew,
+        ).reshape(d_potential.shape)
+
+
+class RotationallyInvariantLayer(nn.Module):
     """
     Compute rotationally invariant features from a set of particle positions.
 
     NOTE: this might be buggy, perhaps mishandling dimensions.
     Its use results in very bad learning performance.
 
-    self.invariant_layer = torch.nn.Sequential(
+    self.invariant_layer = nn.Sequential(
         RotationallyInvariantLayer(),
         TranslationallyInvariantLayer()
     )
