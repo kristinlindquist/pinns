@@ -12,7 +12,7 @@ from typing import Any, Callable, Literal
 from dynnn.encoding import encode_params, flatten_dict, unflatten_params
 from dynnn.utils import round_to_mantissa
 
-from .enums import GeneratorType, OdeSolverType, VectorField
+from .enums import GeneratorType, OdeSolverType, VectorField, enum_validator
 from .stats import ModelStats
 from .types import Dataset, ForcedInt, ForcedIntOrNone
 
@@ -127,7 +127,13 @@ class PinnTrainingArgs(EarlyStoppingTrainingArgs):
     loss_fn: Callable | None = None
 
     # type of vector field to attempt to learn
-    vector_field_type: VectorField = VectorField.CONSERVATIVE  # TODO: no PORT
+    # TODO: no PORT
+    vector_field_type: VectorField = Field(
+        VectorField.CONSERVATIVE,
+        ge=min(VectorField),
+        le=max(VectorField),
+        decorator=RlParam,
+    )
 
     # use invariant layers to improve learning rate
     use_invariant_layer: bool = True
@@ -158,7 +164,7 @@ class DatasetArgs(HasSimulatorArgs):
     """
 
     # number of distinct trajectories to generate
-    n_samples: ForcedInt = Field(5, decorator=RlParam, ge=5, le=25)
+    n_samples: ForcedInt = Field(2, decorator=RlParam, ge=2, le=25)
 
     test_split: float = Field(0.8, ge=0.1, le=0.9)
 
@@ -176,22 +182,32 @@ class TrajectoryArgs(HasSimulatorArgs):
     model: torch.nn.Module | None = None
 
     n_bodies: ForcedIntOrNone = Field(
-        5, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
+        3, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
     )
     n_dims: ForcedInt = Field(3, ge=1, le=6)
 
     # type of EOM generator
-    generator_type: GeneratorType = GeneratorType.HAMILTONIAN
+    generator_type: GeneratorType = Field(
+        GeneratorType.HAMILTONIAN,
+        ge=min(GeneratorType),
+        le=max(GeneratorType),
+        decorator=RlParam,
+    )
 
     # time parameters
     time_scale: ForcedInt = Field(3, decorator=RlParam, ge=3, le=50)
     t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
-    t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
+    t_span_max: ForcedInt = Field(5, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
     odeint_rtol: float = Field(1e-7, ge=1e-14, le=1e-5, decorator=RlParam)
     odeint_atol: float = Field(1e-6, ge=1e-14, le=1e-5, decorator=RlParam)
-    odeint_solver: OdeSolverType = OdeSolverType.SYMPLECTIC
+    odeint_solver: OdeSolverType = Field(
+        OdeSolverType.SYMPLECTIC,
+        ge=min(OdeSolverType),
+        le=max(OdeSolverType),
+        decorator=RlParam,
+    )
 
     """
     A symplectic ODE solver of order p means that the global error between
@@ -200,8 +216,18 @@ class TrajectoryArgs(HasSimulatorArgs):
     """
     odeint_order: ForcedInt = Field(2, ge=1, le=4, decorator=RlParam)
 
+    @model_validator(mode="before")
+    def validate_enums(cls, values: dict[str, Any]) -> dict[str, Any]:
+        """
+        Validate enum fields (e.g. turn int values into enums)
+        """
+        for name, field in cls.__fields__.items():
+            if name in values:
+                values[name] = enum_validator(cls, values[name], field)
+        return values
+
     @model_validator(mode="after")
-    def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:
+    def post_update(cls, values: "TrajectoryArgs") -> "TrajectoryArgs":
         if values.masses is None and values.n_bodies is None:
             raise ValueError("Either masses or n_bodies must be provided")
 
