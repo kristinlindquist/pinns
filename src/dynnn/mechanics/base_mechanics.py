@@ -1,8 +1,9 @@
-import concurrent.futures
 from functools import partial
 import logging
 import math
 from multimethod import multidispatch
+import multiprocess.context as ctx
+import pathos
 from pydantic import BaseModel
 import time
 import torch
@@ -33,6 +34,10 @@ MAX_NAN_STEPS = 10
 TRAJ_CHECK_STEPS = 500
 TRAJ_MIN_PROGRESS = 1e-3
 MAX_FAILS_PER_TRAJ = 3
+
+
+# avoid OSX "System Integrity Protection" that restricts the use of fork
+ctx._force_start_method("spawn")
 
 
 class Mechanics:
@@ -282,14 +287,14 @@ class Mechanics:
         n_samples, test_split = args.dict().values()
         xs, dxs, time = [], [], None
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self.get_trajectory_data, trajectory_args)
+        with pathos.multiprocessing.ProcessPool() as pool:
+            trajectory_tasks = [
+                pool.amap(self.get_trajectory_data, (trajectory_args,))
                 for _ in range(n_samples)
             ]
 
-            for future in concurrent.futures.as_completed(futures):
-                x, dx, t = future.result()
+            for task in trajectory_tasks:
+                x, dx, t = task.get()
                 xs.append(x)
                 dxs.append(dx)
                 time = t
