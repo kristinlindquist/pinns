@@ -252,7 +252,7 @@ class Mechanics:
 
     def get_trajectory_data(
         self, args: TrajectoryArgs, fail_count: int = 0
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Get trajectory data
         """
@@ -267,7 +267,7 @@ class Mechanics:
         # (time_scale*t_span_max) x n_bodies x 2 x n_dims
         x = torch.stack([q, p], dim=2).unsqueeze(dim=0)
         dx = torch.stack([dq, dp], dim=2).unsqueeze(dim=0)
-        return x, dx, t
+        return x, dx, t, masses
 
     def _get_dataset(
         self,
@@ -285,7 +285,7 @@ class Mechanics:
 
         torch.seed()
         n_samples, test_split = args.dict().values()
-        xs, dxs, time = [], [], None
+        xs, dxs, time, masses = [], [], None, None
 
         with pathos.multiprocessing.ProcessPool() as pool:
             trajectory_tasks = [
@@ -294,11 +294,10 @@ class Mechanics:
             ]
 
             for task in trajectory_tasks:
-                x, dx, t = task.get()
+                x, dx, time, masses = task.get()[0]
                 xs.append(x)
                 dxs.append(dx)
-                time = t
-                logger.info("Data traj: %s of %s", len(results), n_samples)
+                logger.info("Data traj: %s of %s", len(xs), n_samples)
 
         # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
         data = {"x": torch.cat(xs), "dx": torch.cat(dxs)}

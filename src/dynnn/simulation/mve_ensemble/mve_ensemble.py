@@ -340,6 +340,8 @@ class MveEnsembleMechanics(Mechanics):
 
         self.potential_fn = potential_fn
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
+        self.domain_min = args.domain_min
+        self.domain_max = args.domain_max
 
         _get_generator_fn = lambda masses, generator_type: partial(
             (
