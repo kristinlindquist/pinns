@@ -184,13 +184,13 @@ class TrajectoryArgs(HasSimulatorArgs):
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
     # time parameters
-    time_scale: ForcedInt = Field(10, decorator=RlParam, ge=3, le=100)
+    time_scale: ForcedInt = Field(3, decorator=RlParam, ge=3, le=50)
     t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
     t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
-    odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-5, decorator=RlParam)
-    odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-5, decorator=RlParam)
+    odeint_rtol: float = Field(1e-10, ge=1e-14, le=1e-5, decorator=RlParam)
+    odeint_atol: float = Field(1e-8, ge=1e-14, le=1e-5, decorator=RlParam)
     odeint_solver: OdeSolverType = OdeSolverType.SYMPLECTIC
 
     """

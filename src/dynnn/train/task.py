@@ -63,8 +63,8 @@ def train_task_model(
 
         # callback & log stats for every step, until the first epoch
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
-            if plot_loss_callback is not None:
-                plot_loss_callback(stats)
+            if args.plot_loss_callback is not None:
+                args.plot_loss_callback(stats)
 
             logger.info(
                 "OUTER TASK Step {}, train_loss {:.4e}, test_loss {:.4e}".format(
