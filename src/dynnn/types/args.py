@@ -189,8 +189,8 @@ class TrajectoryArgs(HasSimulatorArgs):
     t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
-    odeint_rtol: float = Field(1e-10, ge=1e-14, le=1e-5, decorator=RlParam)
-    odeint_atol: float = Field(1e-8, ge=1e-14, le=1e-5, decorator=RlParam)
+    odeint_rtol: float = Field(1e-7, ge=1e-14, le=1e-5, decorator=RlParam)
+    odeint_atol: float = Field(1e-6, ge=1e-14, le=1e-5, decorator=RlParam)
     odeint_solver: OdeSolverType = OdeSolverType.SYMPLECTIC
 
     """
