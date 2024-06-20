@@ -26,7 +26,7 @@ class TaskModel(SaveableModel):
 
     def __init__(
         self,
-        input_dim: int,
+        input_dim: int = 64,
         hidden_dim: int = 128,
         initial_sim_args: SimulatorArgs | None = None,
         pinn_args: PinnModelArgs = PinnModelArgs(),

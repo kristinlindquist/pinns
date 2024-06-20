@@ -35,14 +35,14 @@ class OdeSolverType(Enum):
     IEULER = 7
     SYMPLECTIC = 8
 
-    @classmethod
-    def solve(cls, *args, **kwargs):
+    def solve(self, *args, solver, **kwargs):
         """
         Solve ODE based on solver type
         """
-        if cls == OdeSolverType.SYMPLECTIC:
-            return odeint_symplectic(*args, **kwargs)
-        return odeint(*args, **kwargs)
+        if self == OdeSolverType.SYMPLECTIC:
+            return odeint_symplectic(*args, solver="tsit5", **kwargs)
+
+        return odeint(*args, solver=solver, **kwargs)
 
     @classmethod
     def _missing_(cls, value):

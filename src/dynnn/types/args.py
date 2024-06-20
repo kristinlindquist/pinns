@@ -16,7 +16,7 @@ from .enums import GeneratorType, OdeSolverType, VectorField
 from .stats import ModelStats
 from .types import Dataset, ForcedInt, ForcedIntOrNone
 
-MAX_N_BODIES = 100  # TODO: 1000
+MAX_N_BODIES = 200  # TODO: 1000
 MIN_N_BODIES = 2
 
 
@@ -84,8 +84,8 @@ class TrainingArgs(HasSimulatorArgs):
     n_epochs: ForcedInt = Field(5, ge=50, le=200, decorator=RlParam)
     steps_per_epoch: int = Field(200, ge=100, le=2000)
 
-    learning_rate: float = Field(1e-3, ge=1e-7, le=1e-1)
-    weight_decay: float = Field(1e-4, ge=1e-7, le=1e-1)
+    learning_rate: float = Field(1e-3, ge=1e-7, le=1e-1, decorator=RlParam)
+    weight_decay: float = Field(1e-4, ge=1e-7, le=1e-1, decorator=RlParam)
 
     plot_loss_callback: Callable | None = None
 
@@ -176,7 +176,7 @@ class TrajectoryArgs(HasSimulatorArgs):
     model: torch.nn.Module | None = None
 
     n_bodies: ForcedIntOrNone = Field(
-        15, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
+        5, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
     )
     n_dims: ForcedInt = Field(3, ge=1, le=6)
 
@@ -184,14 +184,21 @@ class TrajectoryArgs(HasSimulatorArgs):
     generator_type: GeneratorType = GeneratorType.HAMILTONIAN
 
     # time parameters
-    time_scale: ForcedInt = Field(10, decorator=RlParam, ge=5, le=100)
+    time_scale: ForcedInt = Field(10, decorator=RlParam, ge=3, le=100)
     t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
     t_span_max: ForcedInt = Field(50, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
     odeint_rtol: float = Field(1e-10, ge=1e-12, le=1e-5, decorator=RlParam)
     odeint_atol: float = Field(1e-6, ge=1e-12, le=1e-5, decorator=RlParam)
-    odeint_solver: OdeSolverType = OdeSolverType.TSIT5
+    odeint_solver: OdeSolverType = OdeSolverType.SYMPLECTIC
+
+    """
+    A symplectic ODE solver of order p means that the global error between
+    the numerical and true solution is ~ to p-th power of the step size.
+    i.e. if step size is reduced by a factor of h, the global error will decrease by a factor of ~h^p
+    """
+    odeint_order: ForcedInt = Field(2, ge=1, le=4, decorator=RlParam)
 
     @model_validator(mode="after")
     def pre_update(cls, values: dict[str, Any]) -> dict[str, Any]:

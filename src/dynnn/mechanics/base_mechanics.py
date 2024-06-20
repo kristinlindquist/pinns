@@ -72,7 +72,7 @@ class Mechanics:
                 "Trajectory %s: %s steps (last t: %s)", traj_id, total_steps, t.item()
             )
 
-            if total_steps >= TRAJ_CHECK_STEPS * 2:
+            if total_steps >= (TRAJ_CHECK_STEPS * 2):
                 # if the timestep is still very tiny, assume we're stuck
                 progress = self.log[traj_id][-1] - self.log[traj_id][-TRAJ_CHECK_STEPS]
                 if progress < min_progress:
@@ -84,7 +84,7 @@ class Mechanics:
                     raise RuntimeError("Trajectory stalled")
 
         # if too many values are NaNs, assume parameter set is invalid
-        total_nans = len([t for t in self.log[traj_id] if math.isnan(t)])
+        total_nans = len([t for t in self.log[traj_id] if torch.isnan(t)])
         if total_nans > MAX_NAN_STEPS:
             logger.warn(
                 "Trajectory %s: Too many NaNs (%s); giving up", traj_id, total_nans
@@ -176,6 +176,7 @@ class Mechanics:
             traj_id=traj_id,
             min_progress=TRAJ_MIN_PROGRESS / args.n_bodies,
         )
+        dynamics_fn.order = args.odeint_order
 
         # use an ODE solver to solve the equations of motion
         t = get_timepoints(args.t_span_min, args.t_span_max, args.time_scale)
