@@ -1,3 +1,4 @@
+import concurrent.futures
 from functools import partial
 import logging
 import math
@@ -31,7 +32,7 @@ logger = get_logger(__name__)
 MAX_NAN_STEPS = 10
 TRAJ_CHECK_STEPS = 500
 TRAJ_MIN_PROGRESS = 1e-3
-MAX_TRAJ_FAILS = 10
+MAX_FAILS_PER_TRAJ = 3
 
 
 class Mechanics:
@@ -244,6 +245,25 @@ class Mechanics:
 
         return data, runtime
 
+    def get_trajectory_data(
+        self, args: TrajectoryArgs, fail_count: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get trajectory data
+        """
+        try:
+            q, p, dq, dp, t, masses = self.get_trajectory(args).dict().values()
+        except Exception as e:
+            if fail_count >= MAX_FAILS_PER_TRAJ:
+                raise e
+            else:
+                return self.get_trajectory_data(args, fail_count + 1)
+
+        # (time_scale*t_span_max) x n_bodies x 2 x n_dims
+        x = torch.stack([q, p], dim=2).unsqueeze(dim=0)
+        dx = torch.stack([dq, dp], dim=2).unsqueeze(dim=0)
+        return x, dx, t
+
     def _get_dataset(
         self,
         args: DatasetArgs,
@@ -257,43 +277,23 @@ class Mechanics:
         args.test_split: Test split
         trajectory_args: Additional arguments for the trajectory function
         """
-        torch.seed()
 
+        torch.seed()
         n_samples, test_split = args.dict().values()
         xs, dxs, time = [], [], None
-        fail_count = 0
-        count = 0
 
-        while count < n_samples:
-            try:
-                # try to get a trajectory
-                q, p, dq, dp, t, masses = (
-                    self.get_trajectory(trajectory_args).dict().values()
-                )
-                count += 1
-            except Exception as e:
-                # if we fail too many times, bubble up the exception
-                if fail_count >= MAX_TRAJ_FAILS:
-                    raise e
-                # otherwise, hope it is transient. try again.
-                fail_count += 1
-                continue
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(self.get_trajectory_data, trajectory_args)
+                for _ in range(n_samples)
+            ]
 
-            logger.info(
-                "Data creation trajectory count: %s of %s (failures: %s)",
-                count,
-                n_samples,
-                fail_count,
-            )
-
-            if time is None:
+            for future in concurrent.futures.as_completed(futures):
+                x, dx, t = future.result()
+                xs.append(x)
+                dxs.append(dx)
                 time = t
-
-            # (time_scale*t_span_max) x n_bodies x 2 x n_dims
-            xs.append(torch.stack([q, p], dim=2).unsqueeze(dim=0))
-
-            # (time_scale*t_span_max) x n_bodies x 2 x n_dims
-            dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
+                logger.info("Data traj: %s of %s", len(results), n_samples)
 
         # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
         data = {"x": torch.cat(xs), "dx": torch.cat(dxs)}
