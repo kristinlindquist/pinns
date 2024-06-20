@@ -202,30 +202,13 @@ def calc_total_energy_per_cell(
     )
 
     # Create a grid of cell indices
-    cell_indices = (
-        torch.stack(
-            torch.meshgrid(
-                torch.arange(grid_resolution[0]),
-                torch.arange(grid_resolution[1]),
-                torch.arange(grid_resolution[2]),
-                indexing="ij",
-            )
-        )
-        .reshape(3, -1)
-        .T
-    )
-
-    cell_indices_2 = torch.cartesian_prod(
-        *[torch.arange(res) for res in grid_resolution]
-    )
-
-    print(cell_indices.shape, cell_indices_2.shape)
+    cell_indices = torch.cartesian_prod(*[torch.arange(gr) for gr in grid_resolution])
 
     # Calc position ranges for each cell (n_cells, 2, num_dims)
     cell_ranges = torch.stack(
         [
-            boundaries[0::2] + cell_indices * cell_sizes,
-            boundaries[0::2] + (cell_indices + 1) * cell_sizes,
+            torch.tensor(boundaries[0::2]) + cell_indices * cell_sizes,
+            torch.tensor(boundaries[0::2]) + (cell_indices + 1) * cell_sizes,
         ],
         dim=-2,
     )
