@@ -21,7 +21,7 @@ class TranslationallyInvariantLayer(nn.Module):
         """
 
         # get mean for each batch, so it is a constant.
-        x_mean = x.mean(dim=(1, 2, 3, 4), keepdim=True)
+        x_mean = x.mean(dim=([d for d in range(x.dim()) if d > 0]), keepdim=True)
 
         # Subtract the mean from each vector to ensure translation invariance
         x = x - x_mean

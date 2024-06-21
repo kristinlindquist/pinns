@@ -179,8 +179,8 @@ def calc_total_energy_per_cell(
         (grid as specified by grid_resolution and boundaries).
 
     Args:
-        q (tensor): The positions of the particles. shape: (n_timepoints, n_bodies, n_dims)
-        p (tensor): The momenta of the particles. shape: (n_timepoints, n_bodies, n_dims)
+        q (tensor): The positions of the particles. shape: (n_samples, n_timepoints, n_bodies, n_dims)
+        p (tensor): The momenta of the particles. shape: (n_samples, n_timepoints, n_bodies, n_dims)
         masses (tensor): The masses of the particles. shape: (n_bodies)
         grid_resolution (tuple): The number of cells in each dimension. shape: (3)
         boundaries (tuple): The boundaries of the grid
@@ -214,6 +214,7 @@ def calc_total_energy_per_cell(
     )
 
     # Create masks for each cell based on position ranges
+    # -> shape: (n_timepoints, n_bodies, n_dims, n_cells)
     masks = (
         (p[..., None, 0] >= cell_ranges[..., 0, 0])
         & (p[..., None, 0] < cell_ranges[..., 1, 0])
@@ -221,7 +222,8 @@ def calc_total_energy_per_cell(
         & (p[..., None, 1] < cell_ranges[..., 1, 1])
         & (p[..., None, 2] >= cell_ranges[..., 0, 2])
         & (p[..., None, 2] < cell_ranges[..., 1, 2])
-    ).permute(2, 0, 1)
+    )
+    masks = masks.permute(-1, *range(masks.dim() - 1))
 
     # Calculate the total energy of the system for each cell
     energies = [

@@ -31,10 +31,15 @@ def train_pinn(
     """
     Training loop for the PINN
     """
+    if args.loss_fn is not None:
+        logger.info(f"Using custom loss function: {args.loss_fn.__name__}")
+        calc_loss = args.loss_fn
+    else:
+        calc_loss = default_loss_fn
+
     optim = torch.optim.Adam(
         model.parameters(), args.learning_rate, weight_decay=args.weight_decay
     )
-    calc_loss = args.loss_fn or default_loss_fn
 
     # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
     x = data.x.clone().detach().requires_grad_()

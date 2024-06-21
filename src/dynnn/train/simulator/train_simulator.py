@@ -44,22 +44,21 @@ def train_simulator(
         for step in range(args.max_simulator_steps):
             optimizer.zero_grad()
             state_tensor, state_dict = state.encode_rl_params()
-
             state_sequence.append(state_tensor)
 
             # Get the action from the state
-            action, unscaled_action, distribution = param_model(
+            new_state_raw, unscaled_new_state, distribution = param_model(
                 state_tensor, torch.stack(state_sequence)
             )
 
-            # validate the action
-            valid_action = SimulatorState.load_rl_params(action, state_dict)
+            # load new raw state into simulator
+            new_state = SimulatorState.load_encoded(new_state_raw, state, state_dict)
 
-            # Apply the action to the simulator
-            next_state, reward = env.step(valid_action)
+            # Apply the new_params to the simulator
+            next_state, reward = env.step(new_state)
 
             # Compute the loss from the policy gradient
-            log_prob = distribution.log_prob(unscaled_action)
+            log_prob = distribution.log_prob(unscaled_new_state)
             loss = -log_prob * reward
             logger.info(
                 f"RL Loss: {loss.item()} (Reward: {reward.item()}, log_prob: {log_prob})"

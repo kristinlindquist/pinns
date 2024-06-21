@@ -32,9 +32,10 @@ def train_task_model(
     # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
     x = data.x.clone().detach().requires_grad_()
     test_x = data.test_x.clone().detach().requires_grad_()
+    masses = data.masses.detach()
 
-    y = transform_y(data.x, data.dx, data.masses)
-    test_y = transform_y(data.test_x, data.test_dx, data.masses)
+    y = transform_y(*[v.squeeze(-2) for v in x.split(1, dim=-2)], masses).detach()
+    test_y = transform_y(*[v.squeeze(-2) for v in x.split(1, dim=-2)], masses).detach()
 
     stats = ModelStats()
 
@@ -43,8 +44,10 @@ def train_task_model(
         ### train ###
         task_model.train()
         optim.zero_grad()
+
         y_hat = task_model.forward(x)
-        loss = F.mse_loss(y, y_hat)
+
+        loss = F.mse_loss(y_hat, y)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(task_model.parameters(), max_norm=1.0)
         optim.step()
@@ -53,13 +56,11 @@ def train_task_model(
         ### test ###
         task_model.eval()
         test_y_hat = task_model.forward(test_x).detach()
-        test_loss = F.mse_loss(test_y, test_y_hat)
+        test_loss = F.mse_loss(test_y_hat, test_y)
         ### end test ###
 
         stats.train_loss.append(loss)
         stats.test_loss.append(test_loss)
-        stats.train_additional_loss.append(additional_loss)
-        stats.test_additional_loss.append(test_additional_loss)
 
         # callback & log stats for every step, until the first epoch
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:

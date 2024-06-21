@@ -182,7 +182,7 @@ class TrajectoryArgs(HasSimulatorArgs):
     model: torch.nn.Module | None = None
 
     n_bodies: ForcedIntOrNone = Field(
-        3, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
+        5, decorator=RlParam, ge=MIN_N_BODIES, le=MAX_N_BODIES
     )
     n_dims: ForcedInt = Field(3, ge=1, le=6)
 
@@ -195,13 +195,13 @@ class TrajectoryArgs(HasSimulatorArgs):
     )
 
     # time parameters
-    time_scale: ForcedInt = Field(3, decorator=RlParam, ge=3, le=50)
+    time_scale: ForcedInt = Field(2, decorator=RlParam, ge=1, le=50)
     t_span_min: ForcedInt = Field(0, ge=0, le=3)  # decorator=RlParam
-    t_span_max: ForcedInt = Field(5, decorator=RlParam, ge=5, le=500)
+    t_span_max: ForcedInt = Field(10, decorator=RlParam, ge=5, le=500)
 
     # ODE solver parameters
     odeint_rtol: float = Field(1e-7, ge=1e-14, le=1e-5, decorator=RlParam)
-    odeint_atol: float = Field(1e-6, ge=1e-14, le=1e-5, decorator=RlParam)
+    odeint_atol: float = Field(1e-7, ge=1e-14, le=1e-5, decorator=RlParam)
     odeint_solver: OdeSolverType = Field(
         OdeSolverType.SYMPLECTIC,
         ge=min(OdeSolverType),
@@ -325,10 +325,18 @@ class SimulatorState(BaseModel):
         return encode_params(flatten_dict(attributes)), attributes
 
     @classmethod
-    def load_rl_params(cls, encoded: dict, template: dict) -> "SimulatorArgs":
-        scalar_dict = unflatten_params(encoded, template, decode_tensors=True)
+    def load_encoded(
+        cls, encoded_state: dict, existing_state: "SimulatorState", template: dict
+    ) -> "SimulatorState":
+        """
+        Includes existing state because not all params are rl params (and we don't want to lose those as defaults)
+        TODO: this is confusing.
+        """
+        scalar_dict = unflatten_params(encoded_state, template, decode_tensors=True)
         return cls(
-            params=SimulatorArgs.load_rl_params(scalar_dict["params"]),
+            params=SimulatorArgs.load_rl_params(
+                {**existing_state.model_dump()["params"], **scalar_dict["params"]}
+            ),
             stats=scalar_dict.get("stats", {}),
             sim_duration=scalar_dict.get("sim_duration", 0.0),
         )

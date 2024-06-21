@@ -60,6 +60,7 @@ class SimulatorEnv:
                 test_loss=[torch.tensor(1e10)],
             )
             sim_duration = 0.0
+            raise e
 
         return SimulatorState(
             params=p,

@@ -1,3 +1,4 @@
+import math
 import time
 import torch
 from torch import nn
@@ -26,7 +27,8 @@ class TaskModel(SaveableModel):
 
     def __init__(
         self,
-        input_dim: int = 64,
+        input_dim: int,  # size based on canonical data set
+        output_dim: int,  # of cells in grid
         hidden_dim: int = 128,
         initial_sim_args: SimulatorArgs | None = None,
         pinn_args: PinnModelArgs = PinnModelArgs(),
@@ -43,15 +45,17 @@ class TaskModel(SaveableModel):
             state_dim=initial_state.num_rl_params,
             output_ranges=initial_state.rl_param_sizes_flat,
         )
+
+        canonical_input_dim = pinn_args.canonical_input_dim * 2 * pinn_args.n_dims
         self.task_input_model = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim, canonical_input_dim),
         )
         self.task_output_model = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(canonical_input_dim, hidden_dim),
             nn.Tanh(),
-            nn.Linear(hidden_dim, input_dim),
+            nn.Linear(hidden_dim, output_dim),
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
@@ -60,15 +64,16 @@ class TaskModel(SaveableModel):
 
         x size: batch_size, n_timepoints x n_bodies x len([q, p]) x n_dims
         """
-        inputs = self.task_input_model(x)
-        pinn_output = self.pinn(inputs, t)
+        inputs = x.reshape(math.prod(x.shape[0:2]), -1)
+        pinn_inputs = self.task_input_model(inputs)
+        pinn_output = self.pinn.canonical_model(pinn_inputs, skip_dynamic_layers=True)
         return self.task_output_model(pinn_output)
 
     def _get_training_loop(
         self, canonical_dataset: Dataset, transform_y: TransformY | None = None
     ) -> Callable[[PinnTrainingArgs, Dataset], ModelStats]:
         """
-        Training loop for the task (trains inner pinn and outer model)
+        Get training loop for the task (trains inner pinn and outer model)
         """
 
         def training_loop(args: PinnTrainingArgs, data: Dataset):
@@ -77,7 +82,7 @@ class TaskModel(SaveableModel):
 
         return training_loop
 
-    def train(
+    def do_train(
         self,
         args: SimulatorTrainingArgs,
         canonical_dataset: Dataset,

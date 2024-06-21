@@ -39,23 +39,22 @@ class PINN(SaveableModel):
     ):
         super(PINN, self).__init__(model_name, run_id)
 
-        # canonical_input_dim * len([q, p]) * n_dims
-        input_dim = args.canonical_input_dim * 2 * args.n_dims
-
         # Levi-Civita permutation tensor
         self.P = permutation_tensor()
-
         self.invariant_layer = TranslationallyInvariantLayer()
         self.skew_invariant_layer = SkewInvariantLayer(args.canonical_hidden_dim)
         self.use_invariant_layer = training_args.use_invariant_layer
         self.field_type = training_args.vector_field_type
 
-        self.model = DynamicallySizedNetwork(
+        # the actual mlp, which has dynamic input and output layers given the variation
+        # in number of bodies
+        input_dim = args.canonical_input_dim * 2 * args.n_dims
+        output_dim = input_dim
+        self.canonical_model = DynamicallySizedNetwork(
             input_dim,
             args.canonical_hidden_dim,
-            input_dim,
+            output_dim,
             dynamic_dim=2,
-            dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
             dynamic_multiplier=2 * args.n_dims,  # len([q, p]) * n_dims
             extra_canonical_output_layers=(
                 [self.skew_invariant_layer]
@@ -64,7 +63,11 @@ class PINN(SaveableModel):
             ),
         )
 
-    def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         Neural vector field
 
@@ -75,7 +78,7 @@ class PINN(SaveableModel):
             x = self.invariant_layer(x)
 
         # get the potentials from the MLP
-        potentials = self.model(x)
+        potentials = self.canonical_model(x)
 
         # split the potentials into scalar and vector components
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
