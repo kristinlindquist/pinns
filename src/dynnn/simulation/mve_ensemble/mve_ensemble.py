@@ -29,9 +29,11 @@ def get_initial_conditions(
     Args:
         n_bodies (int): Number of particles
         n_dims (int): Number of dimensions
-        width (int): Width of the space
-        height (int): Height of the space
+        width (int): width of space in which particles are initialized
+        height (int): height of space in which particles are initialized
         temp (float): Temperature of the system
+        offset (int): Offset for the initial positions
+        masses (torch.Tensor): Masses of the particles (if None, all particles given mass 1.0)
     """
     # initialize masses
     if masses is None:

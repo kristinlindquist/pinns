@@ -50,10 +50,14 @@ class DynamicallySizedNetwork(nn.Module):
         if dynamic_index in layer_map:
             return layer_map[dynamic_index]
 
-        layer = nn.Linear(
-            dynamic_index * self.dynamic_multiplier, self.canonical_input_dim
-        )
+        # specify dimensions for input/output layers
+        dims = [dynamic_index * self.dynamic_multiplier, self.canonical_input_dim]
+        if layer_type == "output":
+            dims = sorted(dims, reverse=True)
+
+        layer = nn.Linear(*dims)
         layer_map[str(dynamic_index)] = layer
+
         return layer
 
     def forward(
