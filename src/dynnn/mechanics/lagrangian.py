@@ -50,7 +50,7 @@ def _lagrangian_equation_of_motion(
         create_graph=True,
     )
     # (∂²L/(∂q∂v)) * v
-    dLdqdv_term = torch.einsum("ijkl,il->ij", jacobian, v)
+    dLdqdv_term = torch.einsum("ijkl,il->ij", dLdqdv, v)
 
     # (∂²L/∂v²)^(-1) * (∂L/∂q - ∂²L/(∂q∂v) * v)
     accelerations = torch.einsum("ijkl,il->ij", dLdv_inv, (dLdq - dLdqdv_term))

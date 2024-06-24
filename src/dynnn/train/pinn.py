@@ -1,12 +1,16 @@
-from typing import Callable
-import torch
 import math, os, sys
-import time
+import torch
 import torch.nn.functional as F
 
-from dynnn.layers.pinn import PINN
-from dynnn.types import PinnStats, PinnTrainingArgs
-from dynnn.utils import save_model
+from dynnn.types import (
+    Dataset,
+    ModelStats,
+    PinnTrainingArgs,
+    SaveableModel,
+)
+from dynnn.utils import get_logger, save_model
+
+logger = get_logger(__name__)
 
 
 def default_loss_fn(dxdt, dxdt_hat, s, masses):
@@ -20,34 +24,35 @@ def default_loss_fn(dxdt, dxdt_hat, s, masses):
 
 
 def train_pinn(
+    model: SaveableModel,
     args: PinnTrainingArgs,
-    data: dict,
-    model: torch.nn.Module,
-    run_id: str | None = None,
-    plot_loss_callback: Callable | None = None,
-    loss_fn: Callable | None = None,
-) -> tuple[torch.nn.Module, dict]:
+    data: Dataset,
+) -> ModelStats:
     """
     Training loop for the PINN
     """
+    if args.loss_fn is not None:
+        logger.info(f"Using custom loss function: {args.loss_fn.__name__}")
+        calc_loss = args.loss_fn
+    else:
+        calc_loss = default_loss_fn
+
     optim = torch.optim.Adam(
         model.parameters(), args.learning_rate, weight_decay=args.weight_decay
     )
-    calc_loss = loss_fn or default_loss_fn
 
     # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
-    x = data["x"].clone().detach().requires_grad_()
-    test_x = data["test_x"].clone().detach().requires_grad_()
-    dxdt = data["dx"].clone().detach().requires_grad_()
-    test_dxdt = data["test_dx"].clone().detach().requires_grad_()
-    masses = data["masses"].clone().detach().requires_grad_()
+    x = data.x.clone().detach().requires_grad_()
+    test_x = data.test_x.clone().detach().requires_grad_()
+    dxdt = data.dx.clone().detach().requires_grad_()
+    test_dxdt = data.test_dx.clone().detach().requires_grad_()
+    masses = data.masses.clone().detach().requires_grad_()
 
-    run_id = run_id or time.time()
     counter = 0
     best_metric = float("inf")
 
     # vanilla train loop
-    stats = PinnStats()
+    stats = ModelStats()
     for step in range(args.n_epochs * args.steps_per_epoch + 1):
         ### train ###
         model.train()
@@ -58,7 +63,7 @@ def train_pinn(
 
         # with torch.autograd.profiler.profile() as prof:
         #     loss.backward()
-        # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
+        # logger.info(prof.key_averages().table(sort_by="self_cpu_time_total"))
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optim.step()
@@ -79,19 +84,18 @@ def train_pinn(
 
         # callback & log stats for every step, until the first epoch
         if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
-            if plot_loss_callback is not None:
-                plot_loss_callback(stats)
+            if args.plot_loss_callback is not None:
+                args.plot_loss_callback(stats)
 
-            if args.is_verbose:
-                print(
-                    "step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
-                        step,
-                        loss.item(),
-                        additional_loss.item(),
-                        test_loss.item(),
-                        test_additional_loss.item(),
-                    )
+            logger.debug(
+                "INNER Step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
+                    step,
+                    loss.item(),
+                    additional_loss.item(),
+                    test_loss.item(),
+                    test_additional_loss.item(),
                 )
+            )
 
         # early stopping checks
         if (
@@ -100,17 +104,16 @@ def train_pinn(
         ):
             val_metric = test_loss.item()
             if val_metric < best_metric - args.tolerance:
-                if args.is_verbose:
-                    print(
-                        f"Val metric improved. {val_metric} < {best_metric} - {args.tolerance}"
-                    )
+                logger.debug(
+                    f"Val metric improved. {val_metric} < {best_metric} - {args.tolerance}"
+                )
                 best_metric = val_metric
                 counter = 0
-                save_model(model, run_id)
+                model.save()
             else:
                 counter += 1
                 if counter >= args.patience:
-                    print("Early stopping triggered. Training stopped.")
+                    logger.warn("Early stopping triggered. Training stopped.")
                     break
 
     train_dxdt_hat = model.forward(x)
@@ -118,7 +121,7 @@ def train_pinn(
     test_dxdt_hat = model.forward(test_x)
     test_dist = (test_dxdt - test_dxdt_hat) ** 2
 
-    print(
+    logger.info(
         "Final train loss {:.4e} +/- {:.4e}\nFinal test loss {:.4e} +/- {:.4e} ({} epochs)".format(
             train_dist.mean().item(),
             train_dist.std().item() / math.sqrt(train_dist.shape[0]),
@@ -128,4 +131,4 @@ def train_pinn(
         )
     )
 
-    return model, stats
+    return stats

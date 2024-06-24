@@ -1,11 +1,8 @@
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-)
+from pydantic import BaseModel, ConfigDict
 import torch
 
 
-class PinnStats(BaseModel):
+class ModelStats(BaseModel):
     """
     Object to hold statistics for a PINN model
     """

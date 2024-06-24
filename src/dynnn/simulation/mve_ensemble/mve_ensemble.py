@@ -3,14 +3,14 @@ MVE Ensemble Mechanics
 (subclass of `Mechanics` for an MVE ensemble)
 """
 
-from typing import overload, Callable
-from multimethod import multidispatch
+from functools import partial
 import torch
 import torch.nn.functional as F
-from functools import partial
+from typing import Callable
 
 from dynnn.mechanics import Mechanics
-from dynnn.types import GeneratorType, PinnModelArgs
+from dynnn.utils import zero_mask
+from dynnn.types import GeneratorType, MechanicsArgs
 
 
 def get_initial_conditions(
@@ -135,7 +135,7 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
                 timepoints x n_bodies x num_dims
         masses (torch.Tensor): Tensor containing masses of particles
     """
-    if len(masses.shape) == 1:
+    if len(masses.shape) < 2:
         masses = masses.unsqueeze(-1)
 
     masses = masses.expand(velocities.shape)
@@ -145,7 +145,8 @@ def calc_kinetic_energy(velocities: torch.Tensor, masses: torch.Tensor) -> torch
 
     # Average the kinetic energies over all particles
     # If we have timepoints, average across all particles for each timepoint
-    mean_dim = -1 if velocities.dim() > 1 else 0
+    mean_dim = -1 if velocities.dim() >= 2 else 0
+
     return kinetic_energy.mean(dim=mean_dim)
 
 
@@ -165,11 +166,80 @@ def calc_total_energy(
     return kinetic_energy + potential_energy
 
 
+def calc_total_energy_per_cell(
+    q: torch.Tensor,
+    p: torch.Tensor,
+    masses: torch.Tensor,
+    grid_resolution: tuple[int, int, int],
+    boundaries: tuple[float, float] | tuple[float, float, float, float, float, float],
+    potential_fn=calc_lennard_jones_potential,
+) -> torch.Tensor:
+    """
+    Calculate the total energy of the system per cell in a grid
+        (grid as specified by grid_resolution and boundaries).
+
+    Args:
+        q (tensor): The positions of the particles. shape: (n_samples, n_timepoints, n_bodies, n_dims)
+        p (tensor): The momenta of the particles. shape: (n_samples, n_timepoints, n_bodies, n_dims)
+        masses (tensor): The masses of the particles. shape: (n_bodies)
+        grid_resolution (tuple): The number of cells in each dimension. shape: (3)
+        boundaries (tuple): The boundaries of the grid
+        potential_fn (function): The potential function to use. Default: calc_lennard_jones_potential
+
+    Returns:
+        tensor: The total energy of the system per cell. shape: (n_timepoints, n_cells)
+    """
+    if len(boundaries) == 2:
+        boundaries = boundaries * 3
+
+    # Calculate the size of each cell
+    cell_sizes = torch.tensor(
+        [
+            (boundaries[1] - boundaries[0]) / grid_resolution[0],
+            (boundaries[3] - boundaries[2]) / grid_resolution[1],
+            (boundaries[5] - boundaries[4]) / grid_resolution[2],
+        ]
+    )
+
+    # Create a grid of cell indices
+    cell_indices = torch.cartesian_prod(*[torch.arange(gr) for gr in grid_resolution])
+
+    # Calc position ranges for each cell (n_cells, 2, num_dims)
+    cell_ranges = torch.stack(
+        [
+            torch.tensor(boundaries[0::2]) + cell_indices * cell_sizes,
+            torch.tensor(boundaries[0::2]) + (cell_indices + 1) * cell_sizes,
+        ],
+        dim=-2,
+    )
+
+    # Create masks for each cell based on position ranges
+    # -> shape: (n_timepoints, n_bodies, n_dims, n_cells)
+    masks = (
+        (p[..., None, 0] >= cell_ranges[..., 0, 0])
+        & (p[..., None, 0] < cell_ranges[..., 1, 0])
+        & (p[..., None, 1] >= cell_ranges[..., 0, 1])
+        & (p[..., None, 1] < cell_ranges[..., 1, 1])
+        & (p[..., None, 2] >= cell_ranges[..., 0, 2])
+        & (p[..., None, 2] < cell_ranges[..., 1, 2])
+    )
+    masks = masks.permute(-1, *range(masks.dim() - 1))
+
+    # Calculate the total energy of the system for each cell
+    energies = [
+        calc_total_energy(zero_mask(q, mask), zero_mask(p, mask), masses, potential_fn)
+        for mask in masks
+    ]
+
+    # shape: (n_timepoints, n_cells)
+    return torch.stack(energies).T
+
+
 def energy_conservation_loss(
     ps_coords: torch.Tensor,
     ps_coords_hat: torch.Tensor,
     masses: torch.Tensor,
-    potential_fn=calc_lennard_jones_potential,
+    potential_fn: Callable = calc_lennard_jones_potential,
     loss_weight: float = 100,
 ) -> torch.Tensor:
     """
@@ -197,7 +267,7 @@ def energy_conservation_loss(
 def mve_hamiltonian_fn(
     ps_coords: torch.Tensor,
     masses: torch.Tensor,
-    potential_fn=calc_lennard_jones_potential,
+    potential_fn: Callable = calc_lennard_jones_potential,
 ) -> torch.Tensor:
     """
     Hamiltonian for a generalized MVE ensemble.
@@ -218,7 +288,7 @@ def mve_lagrangian_fn(
     r: torch.Tensor,
     v: torch.Tensor,
     masses: torch.Tensor,
-    potential_fn=calc_lennard_jones_potential,
+    potential_fn: Callable = calc_lennard_jones_potential,
 ) -> torch.Tensor:
     """
     Lagrangian for a generalized MVE ensemble.
@@ -243,7 +313,7 @@ class MveEnsembleMechanics(Mechanics):
     Mechanics for an MVE ensemble.
     """
 
-    def __init__(self, args: PinnModelArgs = PinnModelArgs()):
+    def __init__(self, args: MechanicsArgs = MechanicsArgs()):
         # potential energy function
         # - Lennard-Jones potential
         # - Boundary potential
@@ -255,6 +325,8 @@ class MveEnsembleMechanics(Mechanics):
 
         self.potential_fn = potential_fn
         self.no_bc_potential_fn = partial(calc_lennard_jones_potential)
+        self.domain_min = args.domain_min
+        self.domain_max = args.domain_max
 
         _get_generator_fn = lambda masses, generator_type: partial(
             (
@@ -269,6 +341,4 @@ class MveEnsembleMechanics(Mechanics):
         super(MveEnsembleMechanics, self).__init__(
             _get_generator_fn,
             get_initial_conditions=get_initial_conditions,
-            domain_min=args.domain_min,
-            domain_max=args.domain_max,
         )

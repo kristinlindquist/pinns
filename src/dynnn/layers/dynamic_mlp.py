@@ -1,11 +1,12 @@
+import math
 from torch import nn
 import torch
+from typing import Literal
 
 
 class DynamicallySizedNetwork(nn.Module):
     """
-    An MLP with input/output layers handling the range of potential sizes (`dynamic_range`)
-    of a given dimension (`dynamic_dim`).
+    An MLP with input/output layers created for each input supplied, based on the size of a given dimension (`dynamic_dim`).
 
     E.g. for PINNs learning over a range of n_bodies values
     """
@@ -16,20 +17,17 @@ class DynamicallySizedNetwork(nn.Module):
         hidden_dim: int,
         canonical_output_dim: int,
         dynamic_dim: int,
-        dynamic_range: tuple[int, int, int],  # (min, max, step)
         dynamic_multiplier: int,
+        extra_canonical_output_layers: list[torch.Tensor] = [],
     ):
         super(DynamicallySizedNetwork, self).__init__()
-        self.dynamic_range = dynamic_range
         self.dynamic_dim = dynamic_dim
+        self.dynamic_multiplier = dynamic_multiplier
+        self.canonical_input_dim = canonical_input_dim
 
         # input/output layers for each permitted size of the dynamic dimension
-        self.input_layers = nn.ModuleList(
-            [
-                nn.Linear(dynamic_input_size * dynamic_multiplier, canonical_input_dim)
-                for dynamic_input_size in range(*dynamic_range)
-            ]
-        )
+        self.input_layers = nn.ModuleDict({})
+        self.output_layers = nn.ModuleDict({})
 
         # core canonical model
         self.canonical_model = nn.Sequential(
@@ -37,28 +35,30 @@ class DynamicallySizedNetwork(nn.Module):
             nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
+            *extra_canonical_output_layers,
             nn.Linear(hidden_dim, canonical_output_dim),
         )
 
-        # output layers for each permitted size of the dynamic dimension
-        self.output_layers = nn.ModuleList(
-            [
-                nn.Linear(
-                    canonical_output_dim, dynamic_output_size * dynamic_multiplier
-                )
-                for dynamic_output_size in range(*dynamic_range)
-            ]
+    def get_or_create_layer(
+        self, dynamic_index: int, layer_type: Literal["input", "output"]
+    ):
+        """
+        Get the dynamically sized layer for the given input tensor
+        """
+        layer_map = self.input_layers if layer_type == "input" else self.output_layers
+
+        if dynamic_index in layer_map:
+            return layer_map[dynamic_index]
+
+        layer = nn.Linear(
+            dynamic_index * self.dynamic_multiplier, self.canonical_input_dim
         )
+        layer_map[str(dynamic_index)] = layer
+        return layer
 
-    def get_dynamic_index(self, x: torch.Tensor) -> int:
-        """
-        Get the index for the dynamic layer
-        (size of the dynamic layer minus the minimum value)
-        """
-        dynamic_dim_size = x.shape[self.dynamic_dim]
-        return dynamic_dim_size - self.dynamic_range[0]
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, skip_dynamic_layers: bool = False
+    ) -> torch.Tensor:
         """
         Forward pass through the dynamically sized network.
 
@@ -69,18 +69,21 @@ class DynamicallySizedNetwork(nn.Module):
 
         Args:
             x (torch.Tensor): input tensor (batch_size, (time_scale*t_span_max) x n_bodies x len([q, p]) x n_dims)
+            skip_dynamic_layers (bool): whether to skip the dynamic layers and just use the canonical model
+                                        (used for outer problem / task model training)
         """
+        if skip_dynamic_layers:
+            return self.canonical_model(x)
+
         # get the index for the dynamic layer
-        dynamic_index = self.get_dynamic_index(x)
+        dynamic_index = x.shape[self.dynamic_dim]
 
         # find the input/output layers for that index
-        input_layer = self.input_layers[dynamic_index]
-        output_layer = self.output_layers[dynamic_index]
+        input_layer = self.get_or_create_layer(dynamic_index, "input")
+        output_layer = self.get_or_create_layer(dynamic_index, "output")
 
-        input = x.reshape(x.shape[0], x.shape[1], -1)
-
-        canonical_input = input_layer(input)
+        inputs = x.reshape(*x.shape[0:2], -1)
+        canonical_input = input_layer(inputs)
         canonical_output = self.canonical_model(canonical_input)
-        dynamic_output = output_layer(canonical_output)
 
-        return dynamic_output.reshape(x.shape)
+        return output_layer(canonical_output).reshape(x.shape)

@@ -1,6 +1,9 @@
 from functools import partial
+import logging
 import math
 from multimethod import multidispatch
+import multiprocess.context as ctx
+import pathos
 from pydantic import BaseModel
 import time
 import torch
@@ -13,22 +16,29 @@ from dynnn.mechanics.hamiltonian import (
     hamiltonian_equation_of_motion as hamiltonian_eom,
 )
 from dynnn.types import (
+    Dataset,
     DatasetArgs,
+    DatasetGenerationFailure,
     GeneratorFunction,
     GeneratorType,
     OdeSolverType,
     Trajectory,
     TrajectoryArgs,
 )
-from dynnn.utils import load_or_create_data
-
+from dynnn.utils import load_or_create_data, get_logger
 
 from .utils import get_timepoints
 
-MAX_NAN_STEPS = 3
+logger = get_logger(__name__)
+
+MAX_NAN_STEPS = 10
 TRAJ_CHECK_STEPS = 500
 TRAJ_MIN_PROGRESS = 1e-3
-MAX_TRAJ_FAILS = 3
+MAX_FAILS_PER_TRAJ = 3
+
+
+# avoid OSX "System Integrity Protection" that restricts the use of fork
+ctx._force_start_method("spawn")
 
 
 class Mechanics:
@@ -40,8 +50,6 @@ class Mechanics:
         self,
         get_generator_fn: Callable[[Any], GeneratorFunction],
         get_initial_conditions: Callable[[int, Any], tuple[torch.Tensor, torch.Tensor]],
-        domain_min: int = 0,
-        domain_max: int = 10,
     ):
         """
         Initialize the class
@@ -49,16 +57,14 @@ class Mechanics:
         Args:
             get_generator_fn: function returning Hamiltonian function
             get_initial_conditions: function returning initial conditions
-            domain_min (int): minimum domain value
-            domain_max (int): maximum domain value
         """
         self.get_generator_fn = get_generator_fn
         self.get_initial_conditions = get_initial_conditions
-        self.domain_min = domain_min
-        self.domain_max = domain_max
         self.log = {}
 
-    def track_trajectory(self, traj_id: str, t: torch.Tensor | None) -> None:
+    def track_trajectory(
+        self, traj_id: str, t: torch.Tensor | None, min_progress: int
+    ) -> None:
         """
         Track trajectory progress (logging & detection that we're going nowhere)
         """
@@ -69,20 +75,27 @@ class Mechanics:
         self.log[traj_id].append(t)
         total_steps = len(self.log[traj_id])
         if total_steps % TRAJ_CHECK_STEPS == 0:
-            print(f"Trajectory {traj_id}: {total_steps} steps (last t: {t.item()})")
+            logger.debug(
+                "Trajectory %s: %s steps (last t: %s)", traj_id, total_steps, t.item()
+            )
 
-            if total_steps >= TRAJ_CHECK_STEPS * 2:
+            if total_steps >= (TRAJ_CHECK_STEPS * 2):
                 # if the timestep is still very tiny, assume we're stuck
                 progress = self.log[traj_id][-1] - self.log[traj_id][-TRAJ_CHECK_STEPS]
-                if progress < TRAJ_MIN_PROGRESS:
-                    print(
-                        f"Trajectory {traj_id}: Stalled ({progress.item()}); giving up"
+                if progress < min_progress:
+                    logger.warn(
+                        "Trajectory %s: Stalled (%s); giving up",
+                        traj_id,
+                        progress.item(),
                     )
                     raise RuntimeError("Trajectory stalled")
 
         # if too many values are NaNs, assume parameter set is invalid
-        if len([t for t in self.log[traj_id] if math.isnan(t)]) > MAX_NAN_STEPS:
-            print(f"Trajectory {traj_id}: Too many NaNs; giving up")
+        total_nans = len([t for t in self.log[traj_id] if torch.isnan(t)])
+        if total_nans > MAX_NAN_STEPS:
+            logger.warn(
+                "Trajectory %s: Too many NaNs (%s); giving up", traj_id, total_nans
+            )
             raise ValueError("Too many NaNs")
 
     def dynamics_fn(
@@ -93,6 +106,7 @@ class Mechanics:
         model: torch.nn.Module | None = None,
         function_args: dict = {},
         traj_id: str = "",
+        min_progress: int = TRAJ_MIN_PROGRESS,
     ) -> torch.Tensor:
         """
         Dynamics function - finds the state update for the supplied function
@@ -110,7 +124,7 @@ class Mechanics:
             based on the specified generator function & equations of motion
         """
         # track trajectory, including logging and early stopping
-        self.track_trajectory(traj_id, t)
+        self.track_trajectory(traj_id, t, min_progress)
 
         generator_fn = self.get_generator_fn(
             **function_args, generator_type=generator_type
@@ -146,8 +160,8 @@ class Mechanics:
             args.t_span_min: Minimum time span
             args.t_span_max: Maximum time span
             args.odeint_solver: ODE solver
-            args.odeint_rtol: Relative tolerance
-            args.odeint_atol: Absolute tolerance
+            args.odeint_rtol: ode solver relative tolerance
+            args.odeint_atol: ode solver absolute tolerance
             args.generator_type: Generator type
             args.time_scale: Time scale
             args.model: Model to use for time derivative (optional)
@@ -167,7 +181,9 @@ class Mechanics:
             generator_type=args.generator_type,
             function_args={"masses": masses},
             traj_id=traj_id,
+            min_progress=TRAJ_MIN_PROGRESS / args.n_bodies,
         )
+        dynamics_fn.order = args.odeint_order
 
         # use an ODE solver to solve the equations of motion
         t = get_timepoints(args.t_span_min, args.t_span_max, args.time_scale)
@@ -210,7 +226,7 @@ class Mechanics:
         self,
         args: DatasetArgs,
         trajectory_args: TrajectoryArgs,
-    ) -> tuple[dict, int]:
+    ) -> tuple[Dataset, int]:
         """
         Generate a dataset of trajectories
         (with pickle caching)
@@ -235,6 +251,25 @@ class Mechanics:
 
         return data, runtime
 
+    def get_trajectory_data(
+        self, args: TrajectoryArgs, fail_count: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Get trajectory data
+        """
+        try:
+            q, p, dq, dp, t, masses = self.get_trajectory(args).dict().values()
+        except Exception as e:
+            if fail_count >= MAX_FAILS_PER_TRAJ:
+                raise DatasetGenerationFailure(e)
+            else:
+                return self.get_trajectory_data(args, fail_count + 1)
+
+        # (time_scale*t_span_max) x n_bodies x 2 x n_dims
+        x = torch.stack([q, p], dim=2).unsqueeze(dim=0)
+        dx = torch.stack([dq, dp], dim=2).unsqueeze(dim=0)
+        return x, dx, t, masses
+
     def _get_dataset(
         self,
         args: DatasetArgs,
@@ -249,42 +284,24 @@ class Mechanics:
         trajectory_args: Additional arguments for the trajectory function
         """
 
-        n_samples, test_split = args.dict().values()
-
         torch.seed()
-        xs, dxs, time = [], [], None
-        fail_count = 0
-        count = 0
-        while count < n_samples:
-            try:
-                # try to get a trajectory
-                q, p, dq, dp, t, masses = (
-                    self.get_trajectory(trajectory_args).dict().values()
-                )
-                count += 1
-            except Exception as e:
-                # if we fail too many times, bubble up the exception
-                if fail_count >= MAX_TRAJ_FAILS:
-                    raise e
-                # otherwise, hope it is transient. try again.
-                fail_count += 1
-                continue
+        n_samples, test_split = args.dict().values()
+        xs, dxs, time, masses = [], [], None, None
 
-            print(
-                f"Data creation trajectory count: {count} of {n_samples} (failures: {fail_count})"
-            )
+        with pathos.multiprocessing.ProcessPool() as pool:
+            trajectory_tasks = [
+                pool.amap(self.get_trajectory_data, (trajectory_args,))
+                for _ in range(n_samples)
+            ]
 
-            if time is None:
-                time = t
-
-            # (time_scale*t_span_max) x n_bodies x 2 x n_dims
-            xs.append(torch.stack([q, p], dim=2).unsqueeze(dim=0))
-
-            # (time_scale*t_span_max) x n_bodies x 2 x n_dims
-            dxs.append(torch.stack([dq, dp], dim=2).unsqueeze(dim=0))
+            for task in trajectory_tasks:
+                x, dx, time, masses = task.get()[0]
+                xs.append(x)
+                dxs.append(dx)
+                logger.info("Data traj: %s of %s", len(xs), n_samples)
 
         # batch_size x (time_scale*t_span_max) x n_bodies x 2 x n_dims
-        data = {"meta": locals(), "x": torch.cat(xs), "dx": torch.cat(dxs)}
+        data = {"x": torch.cat(xs), "dx": torch.cat(dxs)}
 
         # make a train/test split
         split_ix = int(len(data["x"]) * test_split)
@@ -295,4 +312,4 @@ class Mechanics:
                 data[k][split_ix:],
             )
 
-        return split_data
+        return Dataset(**split_data)

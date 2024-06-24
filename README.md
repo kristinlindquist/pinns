@@ -18,5 +18,9 @@ Attempt to solve a hairy "outer problem" (e.g. protein-protein-interaction) by t
 - [Port-Hamiltonian systems](https://www.math.rug.nl/~arjan/DownloadVarious/PHbook.pdf)
 - [Karl Friston (FEP) on Sean Carroll's podcast](https://www.preposterousuniverse.com/podcast/2020/03/09/87-karl-friston-on-brains-predictions-and-free-energy/)
 
+
+### Related Work
+* Jarek Liesen, Chris Lu, Andrei Lupu, Jakob N. Foerster, Henning Sprekeler, Robert T. Lange: “Discovering Minimal Reinforcement Learning Environments”, 2024; [http://arxiv.org/abs/2406.12589 arXiv:2406.12589].
+
 ### Acknowledgements
 I started by using [Hamiltonian-NN](https://github.com/greydanus/hamiltonian-nn/tree/master) and [Lagrangian-NNs](https://github.com/MilesCranmer/lagrangian_nns) as templates (and evolved from there).

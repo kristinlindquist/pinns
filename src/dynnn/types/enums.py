@@ -1,9 +1,29 @@
-from enum import Enum
+from enum import Enum, IntEnum
+from pydantic.fields import Field
 from torchdyn.numerics.odeint import odeint, odeint_symplectic
-from typing import Callable
+from typing import Any, Callable, Type
 
 
-class GeneratorType(Enum):
+class ListableEnum(IntEnum):
+
+    @classmethod
+    def values(cls):
+        return list(map(lambda c: c.value, cls))
+
+    @classmethod
+    def _missing_(cls, value):
+        try:
+            if isinstance(value, str):
+                return cls[value.upper()]
+            if isinstance(value, int):
+                return cls(value)
+            if isinstance(value, float):
+                return cls(int(value))
+        except KeyError:
+            raise ValueError(f"{value} is not a valid {cls.__name__}")
+
+
+class GeneratorType(ListableEnum):
     """
     Enum for the type of EOM generator function
     """
@@ -11,15 +31,8 @@ class GeneratorType(Enum):
     LAGRANGIAN = 1
     HAMILTONIAN = 2
 
-    @classmethod
-    def _missing_(cls, value):
-        try:
-            return cls[value.upper()]
-        except KeyError:
-            raise ValueError(f"{value} is not a valid GeneratorType")
 
-
-class OdeSolverType(Enum):
+class OdeSolverType(ListableEnum):
     """
     Enum for the type of ODE solver to use
 
@@ -35,32 +48,39 @@ class OdeSolverType(Enum):
     IEULER = 7
     SYMPLECTIC = 8
 
-    @classmethod
-    def solve(cls, *args, **kwargs):
+    def solve(self, *args, solver, **kwargs):
         """
         Solve ODE based on solver type
         """
-        if cls == OdeSolverType.SYMPLECTIC:
-            return odeint_symplectic(*args, **kwargs)
-        return odeint(*args, **kwargs)
+        if self == OdeSolverType.SYMPLECTIC:
+            return odeint_symplectic(*args, solver="tsit5", **kwargs)
 
-    @classmethod
-    def _missing_(cls, value):
-        try:
-            return cls[value.upper()]
-        except KeyError:
-            raise ValueError(f"{value} is not a valid OdeSolverType")
+        return odeint(*args, solver=solver, **kwargs)
 
 
-class VectorField(Enum):
+class VectorField(ListableEnum):
     """
     Type of vector field to learn
     """
 
-    SOLENOIDAL = "solenoidal"
-    CONSERVATIVE = "conservative"
-    PORT = "port"
+    SOLENOIDAL = 1
+    CONSERVATIVE = 2
+    PORT = 3
     # bad name; means solenoidal and conservative
     # https://en.wikipedia.org/wiki/Helmholtz_decomposition
-    HELMHOLTZ = "helmholtz"
-    NONE = "none"
+    HELMHOLTZ = 4
+    NONE = 5
+
+
+def enum_validator(cls, v: Any, field: Field):
+    """
+    Pydantic validator for Enum fields
+    """
+    if isinstance(field.annotation, type) and issubclass(field.annotation, Enum):
+        try:
+            return field.annotation(v)
+        except ValueError:
+            if hasattr(field.annotation, "__missing__"):
+                return field.annotation.__missing__(field.annotation, v)
+            raise
+    return v

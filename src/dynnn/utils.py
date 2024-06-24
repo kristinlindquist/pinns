@@ -1,6 +1,8 @@
-import os
-import math
 import json
+import logging
+import logging.config
+import math
+import os
 import pickle
 import statistics
 import sys
@@ -10,6 +12,10 @@ from typing import Any, Callable, Sequence
 
 MODEL_BASE_DIR = sys.path[0] + "/../models"
 DATA_BASE_DIR = sys.path[0] + "/../data"
+LOG_PATH = sys.path[0] + "/../logs"
+
+
+logger = logging.getLogger(__name__)
 
 
 def load_data(data_file: str) -> Any:
@@ -20,7 +26,7 @@ def load_data(data_file: str) -> Any:
         data_file (str): data file name (without path)
     """
     file_path = f"{DATA_BASE_DIR}/{data_file}"
-    print(f"Attempting to load data from {file_path}")
+    logger.debug(f"Attempting to load data from {file_path}")
     with open(file_path, "rb") as file:
         data = pickle.loads(file.read())
 
@@ -61,9 +67,9 @@ def load_or_create_data(
     try:
         return load_data(data_file)
     except FileNotFoundError:
-        print(f"Data file {data_file} not found.")
+        logger.info(f"Data file {data_file} not found.")
         if create_if_nx is not None:
-            print(f"Creating new data...")
+            logger.info(f"Creating new data...")
             data = create_if_nx()
             save_data(data, data_file)
 
@@ -82,7 +88,7 @@ def save_model(model: torch.nn.Module, run_id: str, model_name: str = "dynnn"):
         os.makedirs(MODEL_BASE_DIR)
 
     file_path = f"{MODEL_BASE_DIR}/{model_name}-{run_id}.pt"
-    print("Saving model to", file_path)
+    logger.info("Saving model to %s", file_path)
     torch.save(model, file_path)
 
 
@@ -185,3 +191,24 @@ def round_to_mantissa(number: float, precision: int = 0) -> float:
 
     # round to handle floating point errors
     return round(rounded_mantissa * (10**exponent), abs(exponent) + 1)
+
+
+def get_logger(name: str = __name__):
+    """
+    Get a logger instance
+    """
+    if not os.path.exists(LOG_PATH):
+        os.makedirs(LOG_PATH)
+
+    config = sys.path[0] + "/../logging.ini"
+    logging.config.fileConfig(config, disable_existing_loggers=False)
+    return logging.getLogger(name)
+
+
+def zero_mask(vec: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """
+    Zero out all unmasked elements
+    """
+    base = torch.zeros(vec.shape)
+    base[mask] = vec[mask]
+    return base

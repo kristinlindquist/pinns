@@ -4,59 +4,70 @@ from torch import nn
 import torch.autograd.functional as AF
 from typing import Literal
 
-from dynnn.layers import DynamicallySizedNetwork, TranslationallyInvariantLayer
-from dynnn.types import MIN_N_BODIES, MAX_N_BODIES, PinnModelArgs, VectorField
+from dynnn.layers import (
+    DynamicallySizedNetwork,
+    SkewInvariantLayer,
+    TranslationallyInvariantLayer,
+)
+from dynnn.types import (
+    MIN_N_BODIES,
+    MAX_N_BODIES,
+    PinnModelArgs,
+    PinnTrainingArgs,
+    SaveableModel,
+    VectorField,
+)
 
 from .utils import permutation_tensor
 
 
-class PINN(nn.Module):
+class PINN(SaveableModel):
     """
     Physics-Informed Neural Network (PINN) for learning arbitrary vector fields.
 
     TODO:
     - dimensionality of permutation_tensor
-    - use_invariant_layer
-    - Port-Hamiltonian systems (Skew)
     """
 
     def __init__(
         self,
+        run_id: float | str,
         args: PinnModelArgs,
-        n_dims: int,
+        # TODO: send in on fwd pass only? otherwise cannot change based on rl
+        training_args: PinnTrainingArgs = PinnTrainingArgs(),
+        model_name: str = "pinn",
     ):
-        super(PINN, self).__init__()
-
-        # canonical_input_dim * len([q, p]) * n_dims
-        input_dim = args.canonical_input_dim * 2 * n_dims
+        super(PINN, self).__init__(model_name, run_id)
 
         # Levi-Civita permutation tensor
         self.P = permutation_tensor()
-
-        # Skew-symmetric matrix
-        self.S = nn.Parameter(torch.randn(input_dim, input_dim))
-
         self.invariant_layer = TranslationallyInvariantLayer()
-        self.use_invariant_layer = args.use_invariant_layer
-        self.field_type = args.vector_field_type
+        self.skew_invariant_layer = SkewInvariantLayer(args.canonical_hidden_dim)
+        self.use_invariant_layer = training_args.use_invariant_layer
+        self.field_type = training_args.vector_field_type
 
-        self.model = DynamicallySizedNetwork(
+        # the actual mlp, which has dynamic input and output layers given the variation
+        # in number of bodies
+        input_dim = args.canonical_input_dim * 2 * args.n_dims
+        output_dim = input_dim
+        self.canonical_model = DynamicallySizedNetwork(
             input_dim,
             args.canonical_hidden_dim,
-            input_dim,
+            output_dim,
             dynamic_dim=2,
-            dynamic_range=(MIN_N_BODIES, MAX_N_BODIES),
-            dynamic_multiplier=2 * n_dims,  # len([q, p]) * n_dims
+            dynamic_multiplier=2 * args.n_dims,  # len([q, p]) * n_dims
+            extra_canonical_output_layers=(
+                [self.skew_invariant_layer]
+                if self.field_type == VectorField.PORT
+                else []
+            ),
         )
 
-    @property
-    def skew(self):
-        """
-        Skew-symmetric matrix
-        """
-        return 0.5 * (self.S - self.S.T)
-
-    def forward(self, x: torch.Tensor, t: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        t: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """
         Neural vector field
 
@@ -67,7 +78,7 @@ class PINN(nn.Module):
             x = self.invariant_layer(x)
 
         # get the potentials from the MLP
-        potentials = self.model(x)
+        potentials = self.canonical_model(x)
 
         # split the potentials into scalar and vector components
         scalar_potential, vector_potential = torch.split(potentials, 1, dim=-2)
@@ -76,18 +87,9 @@ class PINN(nn.Module):
             return potentials
 
         if self.field_type == VectorField.PORT:
-            # # TODO: skew invariance matrix for variable in/out sizes...
-            # d_potential = torch.autograd.grad(
-            #     [potentials.sum()], [x], create_graph=True
-            # )[0]
-
-            # assert d_potential is not None
-            # return torch.einsum(
-            #     "bti,ij->btj",
-            #     d_potential.reshape(**d_potential.shape[0:2], -1),
-            #     self.skew,
-            # ).reshape(d_potential.shape)
-            raise NotImplementedError("Port-Hamiltonian systems not yet implemented")
+            # Port-Hamiltonian systems
+            # (skew-symmetric matrix - already handled in MLP)
+            return potentials
 
         # start out with both components set to 0
         conservative_field = torch.zeros_like(x)
