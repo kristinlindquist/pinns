@@ -18,6 +18,7 @@ from dynnn.mechanics.hamiltonian import (
 from dynnn.types import (
     Dataset,
     DatasetArgs,
+    DatasetGenerationFailure,
     GeneratorFunction,
     GeneratorType,
     OdeSolverType,
@@ -260,7 +261,7 @@ class Mechanics:
             q, p, dq, dp, t, masses = self.get_trajectory(args).dict().values()
         except Exception as e:
             if fail_count >= MAX_FAILS_PER_TRAJ:
-                raise e
+                raise DatasetGenerationFailure(e)
             else:
                 return self.get_trajectory_data(args, fail_count + 1)
 

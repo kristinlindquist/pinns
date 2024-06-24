@@ -42,3 +42,7 @@ class SaveableModel(torch.nn.Module):
 
     def load(self):
         return self(load_model(self.run_id, self.model_name))
+
+
+class DatasetGenerationFailure(Exception):
+    pass

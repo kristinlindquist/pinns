@@ -1,7 +1,7 @@
 import torch
 
 from dynnn.simulation.mve_ensemble import MveEnsembleMechanics
-from dynnn.types import ModelStats, SimulatorState, TrainLoop
+from dynnn.types import DatasetGenerationFailure, ModelStats, SimulatorState, TrainLoop
 from dynnn.utils import get_logger
 
 
@@ -52,7 +52,7 @@ class SimulatorEnv:
                 p.dataset_args, p.trajectory_args
             )
             stats = self.train_loop(p.training_args, data)
-        except Exception as e:
+        except DatasetGenerationFailure as e:
             logger.error("Failed to generate dataset: %s", e)
             # inf loss due to error
             stats = ModelStats(
@@ -60,7 +60,6 @@ class SimulatorEnv:
                 test_loss=[torch.tensor(1e10)],
             )
             sim_duration = 0.0
-            raise e
 
         return SimulatorState(
             params=p,

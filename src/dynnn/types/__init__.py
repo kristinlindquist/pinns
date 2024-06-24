@@ -14,12 +14,13 @@ from .args import (
 from .enums import GeneratorType, OdeSolverType, VectorField
 from .functions import GeneratorFunction, TransformY, TrainLoop
 from .stats import ModelStats
-from .types import Dataset, SaveableModel, Trajectory
+from .types import Dataset, DatasetGenerationFailure, SaveableModel, Trajectory
 
 
 __all__ = [
     "Dataset",
     "DatasetArgs",
+    "DatasetGenerationFailure",
     "GeneratorType",
     "GeneratorFunction",
     "MechanicsArgs",
