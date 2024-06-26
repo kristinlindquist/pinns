@@ -24,6 +24,12 @@ def train_simulator(
     """
     Training loop to learn the simulator.
     Explore parameter space for the creation and learning of dynamical system.
+
+    Args:
+        param_model: parameter learner (RL) model
+        args: arguments for training the simulator / exploring the parameter space
+        initial_state: initial state of the simulator
+        train_loop: training loop for the simulator (trains outer task + inner PINN)
     """
     # Initialize the rl environment
     # TODO: move up to task_model?

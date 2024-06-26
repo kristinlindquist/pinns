@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 MAX_NAN_STEPS = 10
 TRAJ_CHECK_STEPS = 500
 TRAJ_MIN_PROGRESS = 1e-3
-MAX_FAILS_PER_TRAJ = 3
+MAX_FAILS_PER_TRAJ = 10
 
 
 # avoid OSX "System Integrity Protection" that restricts the use of fork
@@ -75,7 +75,7 @@ class Mechanics:
         self.log[traj_id].append(t)
         total_steps = len(self.log[traj_id])
         if total_steps % TRAJ_CHECK_STEPS == 0:
-            logger.debug(
+            logger.info(
                 "Trajectory %s: %s steps (last t: %s)", traj_id, total_steps, t.item()
             )
 

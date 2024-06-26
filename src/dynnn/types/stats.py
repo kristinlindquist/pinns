@@ -13,6 +13,10 @@ class ModelStats(BaseModel):
     train_additional_loss: list[torch.Tensor] = []
     test_additional_loss: list[torch.Tensor] = []
 
+    def get_as_float(self, key: str):
+        values = getattr(self, key)
+        return [v.item() for v in values]
+
     @staticmethod
     def _calc_mean(values: list[torch.Tensor]) -> torch.Tensor:
         if len(values) == 0:

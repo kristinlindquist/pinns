@@ -13,7 +13,7 @@ from dynnn.utils import get_logger, save_model
 logger = get_logger(__name__)
 
 
-def default_loss_fn(dxdt, dxdt_hat, s, masses):
+def default_loss_fn(dxdt_hat, dxdt, s, masses):
     """
     Calculate loss
     """
@@ -32,9 +32,10 @@ def train_pinn(
     Training loop for the PINN
     """
     if args.loss_fn is not None:
-        logger.info(f"Using custom loss function: {args.loss_fn.__name__}")
+        logger.warning(f"Using custom loss function: {args.loss_fn.__name__}")
         calc_loss = args.loss_fn
     else:
+        logger.info("Using default loss function")
         calc_loss = default_loss_fn
 
     optim = torch.optim.Adam(
@@ -58,7 +59,7 @@ def train_pinn(
         model.train()
         optim.zero_grad()
         dxdt_hat = model.forward(x)
-        loss, additional_loss = calc_loss(dxdt, dxdt_hat, x, masses)
+        loss, additional_loss = calc_loss(dxdt_hat, dxdt, x, masses)
         loss.backward()
 
         # with torch.autograd.profiler.profile() as prof:
@@ -73,7 +74,7 @@ def train_pinn(
         model.eval()
         test_dxdt_hat = model.forward(test_x)  # .detach()
         test_loss, test_additional_loss = calc_loss(
-            test_dxdt, test_dxdt_hat, test_x, masses
+            test_dxdt_hat, test_dxdt, test_x, masses
         )
         ### end test ###
 
@@ -83,11 +84,13 @@ def train_pinn(
         stats.test_additional_loss.append(test_additional_loss)
 
         # callback & log stats for every step, until the first epoch
-        if step % (args.steps_per_epoch // 10) == 0 or step < args.steps_per_epoch:
+        if step % (args.steps_per_epoch // 10) == 0 or (
+            step < args.steps_per_epoch and step % (args.steps_per_epoch // 100) == 0
+        ):
             if args.plot_loss_callback is not None:
                 args.plot_loss_callback(stats)
 
-            logger.debug(
+            logger.info(
                 "INNER Step {}, train_loss {:.4e}, additional_loss {:.4e}, test_loss {:.4e}, test_additional_loss {:.4e}".format(
                     step,
                     loss.item(),

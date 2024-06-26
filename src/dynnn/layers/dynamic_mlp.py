@@ -48,7 +48,7 @@ class DynamicallySizedNetwork(nn.Module):
         layer_map = self.input_layers if layer_type == "input" else self.output_layers
 
         if dynamic_index in layer_map:
-            return layer_map[dynamic_index]
+            return layer_map[str(dynamic_index)]
 
         # specify dimensions for input/output layers
         dims = [dynamic_index * self.dynamic_multiplier, self.canonical_input_dim]

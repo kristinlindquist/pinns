@@ -9,8 +9,10 @@ import torch.nn.functional as F
 from typing import Callable
 
 from dynnn.mechanics import Mechanics
-from dynnn.utils import zero_mask
+from dynnn.utils import zero_mask, get_logger
 from dynnn.types import GeneratorType, MechanicsArgs
+
+logger = get_logger(__name__)
 
 
 def get_initial_conditions(
@@ -238,8 +240,8 @@ def calc_total_energy_per_cell(
 
 
 def energy_conservation_loss(
-    ps_coords: torch.Tensor,
     ps_coords_hat: torch.Tensor,
+    ps_coords: torch.Tensor,
     masses: torch.Tensor,
     potential_fn: Callable = calc_lennard_jones_potential,
     loss_weight: float = 100,

@@ -5,6 +5,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.functional_validators import BeforeValidator
+from pydash import merge
 import torch
 import torch.nn.functional as F
 from typing import Any, Callable, Literal
@@ -57,8 +58,8 @@ class HasSimulatorArgs(BaseModel):
         }
 
     @classmethod
-    def load_rl_params(cls, encoded: dict):
-        return cls(**{f: v for f, v in encoded.items() if f in cls.rl_fields()})
+    def load_encoded(cls, encoded: dict, existing_args: "HasSimulatorArgs"):
+        return cls(**{**encoded, **existing_args.model_dump()})
 
     @classmethod
     def calc_rl_param_loss(cls, encoded: dict) -> torch.Tensor:
@@ -81,8 +82,8 @@ class TrainingArgs(HasSimulatorArgs):
     Arguments for training a model
     """
 
-    n_epochs: ForcedInt = Field(5, ge=50, le=200, decorator=RlParam)
-    steps_per_epoch: int = Field(200, ge=100, le=2000)
+    n_epochs: ForcedInt = Field(5, ge=5, le=200, decorator=RlParam)
+    steps_per_epoch: int = Field(400, ge=100, le=2000)
 
     learning_rate: float = Field(1e-3, ge=1e-7, le=1e-1, decorator=RlParam)
     weight_decay: float = Field(1e-4, ge=1e-7, le=1e-1, decorator=RlParam)
@@ -110,7 +111,7 @@ class MechanicsArgs(HasSimulatorArgs):
     domain_max: ForcedInt = Field(10, decorator=RlParam, ge=1, le=1000)
 
     @model_validator(mode="after")
-    def pre_update(cls, values: "PinnTrainingArgs") -> "PinnTrainingArgs":
+    def pre_update(cls, values: "MechanicsArgs") -> "MechanicsArgs":
         if values.domain_max <= values.domain_min:
             values.domain_max = (
                 values.domain_max + (values.domain_min - values.domain_max) + 1
@@ -129,14 +130,14 @@ class PinnTrainingArgs(EarlyStoppingTrainingArgs):
     # type of vector field to attempt to learn
     # TODO: no PORT
     vector_field_type: VectorField = Field(
-        VectorField.CONSERVATIVE,
+        VectorField.NONE,
         ge=min(VectorField),
         le=max(VectorField),
-        decorator=RlParam,
+        # decorator=RlParam,
     )
 
     # use invariant layers to improve learning rate
-    use_invariant_layer: bool = True
+    use_invariant_layer: bool = False
 
 
 class SimulatorTrainingArgs(TrainingArgs):
@@ -191,7 +192,7 @@ class TrajectoryArgs(HasSimulatorArgs):
         GeneratorType.HAMILTONIAN,
         ge=min(GeneratorType),
         le=max(GeneratorType),
-        decorator=RlParam,
+        # decorator=RlParam,
     )
 
     # time parameters
@@ -214,7 +215,7 @@ class TrajectoryArgs(HasSimulatorArgs):
     the numerical and true solution is ~ to p-th power of the step size.
     i.e. if step size is reduced by a factor of h, the global error will decrease by a factor of ~h^p
     """
-    odeint_order: ForcedInt = Field(2, ge=1, le=4, decorator=RlParam)
+    odeint_order: ForcedInt = Field(2, ge=1, le=4)  # decorator=RlParam
 
     @model_validator(mode="before")
     def validate_enums(cls, values: dict[str, Any]) -> dict[str, Any]:
@@ -285,12 +286,14 @@ class SimulatorArgs(BaseModel):
         }
 
     @classmethod
-    def load_rl_params(cls, encoded: dict[str, torch.Tensor]) -> "SimulatorArgs":
+    def load_encoded(
+        cls, encoded: dict[str, torch.Tensor], existing_args: "SimulatorArgs"
+    ) -> "SimulatorArgs":
         return cls(
-            dataset_args=DatasetArgs.load_rl_params(encoded["dataset_args"]),
-            mechanics_args=MechanicsArgs.load_rl_params(encoded["mechanics_args"]),
-            trajectory_args=TrajectoryArgs.load_rl_params(encoded["trajectory_args"]),
-            training_args=PinnTrainingArgs.load_rl_params(encoded["training_args"]),
+            **{
+                f: v.annotation.load_encoded(encoded[f], getattr(existing_args, f))
+                for f, v in cls.__fields__.items()
+            }
         )
 
 
@@ -334,8 +337,8 @@ class SimulatorState(BaseModel):
         """
         scalar_dict = unflatten_params(encoded_state, template, decode_tensors=True)
         return cls(
-            params=SimulatorArgs.load_rl_params(
-                {**existing_state.model_dump()["params"], **scalar_dict["params"]}
+            params=SimulatorArgs.load_encoded(
+                scalar_dict["params"], existing_state.params
             ),
             stats=scalar_dict.get("stats", {}),
             sim_duration=scalar_dict.get("sim_duration", 0.0),
